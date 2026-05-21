@@ -61,18 +61,22 @@ function Run-CpuBench {
 }
 
 function Run-RamBench {
-    Write-Host "[*] Running Volatile Memory I/O Test (Array Allocation)..." -ForegroundColor Yellow
+    Write-Host "[*] Running Volatile Memory I/O Test (500MB MemoryStream)..." -ForegroundColor Yellow
     $time = Measure-Command {
-        $size = 250MB
-        $bytes = New-Object byte[] $size
-        $rnd = New-Object Random
-        $rnd.NextBytes($bytes)
+        $ms = New-Object System.IO.MemoryStream
+        $buffer = New-Object byte[] 1MB
+        for ($i = 0; $i -lt 500; $i++) {
+            $ms.Write($buffer, 0, $buffer.Length)
+        }
+        $ms.Dispose()
         [System.GC]::Collect()
     }
     $elapsed = [math]::Round($time.TotalSeconds, 3)
-    $speedMBps = [math]::Round((250 / $elapsed), 2)
     
-    # Auto-scale format to GB/s if it breaks the 1024MB/s barrier
+    # Prevent division by zero if it executes in < 0.001s
+    if ($elapsed -eq 0) { $elapsed = 0.001 }
+    $speedMBps = [math]::Round((500 / $elapsed), 2)
+    
     if ($speedMBps -ge 1024) {
         $speedStr = "$([math]::Round($speedMBps / 1024, 2)) GB/s"
     } else {
@@ -84,19 +88,21 @@ function Run-RamBench {
 }
 
 function Run-DiskBench {
-    Write-Host "[*] Running Storage Drive I/O Test (500MB Sequential)..." -ForegroundColor Yellow
+    Write-Host "[*] Running Storage Drive I/O Test (500MB WriteThrough)..." -ForegroundColor Yellow
     $testFile = "$env:TEMP\.spectra_disk_test.tmp"
     $time = Measure-Command {
-        $fs = [System.IO.File]::Create($testFile)
+        # Using WriteThrough flag to bypass OS cache for true hardware speed
+        $fs = New-Object System.IO.FileStream($testFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None, 1MB, [System.IO.FileOptions]::WriteThrough)
         $buffer = New-Object byte[] 1MB
         for ($i = 0; $i -lt 500; $i++) {
             $fs.Write($buffer, 0, $buffer.Length)
         }
-        $fs.Flush()
         $fs.Close()
     }
     Remove-Item $testFile -Force
     $elapsed = [math]::Round($time.TotalSeconds, 3)
+    
+    if ($elapsed -eq 0) { $elapsed = 0.001 }
     $speedMBps = [math]::Round((500 / $elapsed), 2)
     
     if ($speedMBps -ge 1024) {
