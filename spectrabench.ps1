@@ -3,7 +3,7 @@
 Project      : SpectraBench (v1.0-Core)
 Description  : Zero-Dependency Cross-Platform System Benchmark
 Author       : Nabil
-Architecture : PowerShell with JIT Native C# Injection
+Architecture : PowerShell with JIT Native C# Injection (Anti-DCE Build)
 #>
 
 # --- [ REQUIRE ADMIN ] ---
@@ -16,7 +16,6 @@ if (-not $isAdmin) {
 $Host.UI.RawUI.WindowTitle = "SpectraBench v1.0 (Windows Edition)"
 
 # --- [ THE ENGINE: JIT NATIVE C# COMPILATION IN RAM ] ---
-# Bypasses PowerShell interpreter limits to match Linux C-level native speeds.
 $csharpCode = @"
 using System;
 using System.IO;
@@ -35,7 +34,10 @@ public class SpectraCore {
         }
         sw.Stop();
         double e = sw.Elapsed.TotalSeconds;
-        return e == 0 ? 0.001 : e;
+        if (e == 0) e = 0.001;
+        
+        // Anti-Dead Code Elimination (DCE) Trick: Forces compiler to fully execute the loop
+        return e + (c * 0.0); 
     }
 
     public static double RunRam() {
@@ -65,7 +67,8 @@ public class SpectraCore {
     }
 }
 "@
-# Inject and Compile in Memory (No files left behind)
+
+# Inject and Compile in Memory securely
 if (-not ("SpectraCore" -as [type])) {
     Add-Type -TypeDefinition $csharpCode -Language CSharp
 }
