@@ -13,7 +13,6 @@
 - [The Philosophy](#-the-philosophy)
 - [Preview](#-preview)
 - [Quick Start (Ghost Mode)](#-quick-start-ghost-mode)
-- [Manual Execution](#-manual-execution)
 - [How It Works (The Metrics)](#️-how-it-works-the-metrics)
 - [Security & Transparency](#-security--transparency)
 - [Project Roadmap](#-project-roadmap)
@@ -72,7 +71,7 @@ You don't even need to `git clone`. Run the benchmark directly from the reposito
 Open your terminal and run:
 
 ```bash
-curl -sL "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh](https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh)" | sudo bash
+curl -sL "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh" | sudo bash
 
 ```
 
@@ -81,33 +80,7 @@ curl -sL "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabe
 Open **PowerShell as Administrator** and run:
 
 ```powershell
-iex (irm "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1](https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1)")
-
-```
-
----
-
-## 📥 Manual Execution
-
-If you prefer to review the code before running it (which is always a good practice):
-
-**Linux:**
-
-```bash
-git clone [https://github.com/nabilfp/spectrabench.git](https://github.com/nabilfp/spectrabench.git)
-cd spectrabench
-chmod +x spectrabench.sh
-sudo ./spectrabench.sh
-
-```
-
-**Windows:**
-
-```powershell
-git clone [https://github.com/nabilfp/spectrabench.git](https://github.com/nabilfp/spectrabench.git)
-cd spectrabench
-Set-ExecutionPolicy Bypass -Scope Process -Force
-.\spectrabench.ps1
+iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1")
 
 ```
 
