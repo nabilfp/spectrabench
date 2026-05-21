@@ -66,14 +66,12 @@ function run_ram_bench() {
     echo -e "${YELLOW}[*] Running Volatile Memory I/O Test (500MB to /dev/shm)...${RESET}"
     RAM_FILE="/dev/shm/.spectra_ram_test"
     
-    # LC_ALL=C forces English output so we can reliably parse the speed
     RAM_SPEED_FULL=$(LC_ALL=C dd if=/dev/zero of=$RAM_FILE bs=1M count=500 2>&1 | awk '/copied/ {print $(NF-1), $NF}')
     rm -f $RAM_FILE
     
     raw_val=$(echo "$RAM_SPEED_FULL" | awk '{print $1}')
     unit=$(echo "$RAM_SPEED_FULL" | awk '{print $2}')
     
-    # Unit normalization to handle GB/s output
     if [[ "$unit" == *"GB/s"* ]]; then
         raw_val=$(awk "BEGIN {print $raw_val * 1024}")
     elif [[ "$unit" == *"kB/s"* ]]; then
