@@ -3,7 +3,7 @@
 Project      : SpectraBench (v1.0-Core)
 Description  : Zero-Dependency Cross-Platform System Benchmark
 Author       : Nabil
-Architecture : PowerShell with JIT Native C# Injection (Anti-DCE Build)
+Architecture : Pure PowerShell Native
 #>
 
 # --- [ REQUIRE ADMIN ] ---
@@ -14,64 +14,6 @@ if (-not $isAdmin) {
 }
 
 $Host.UI.RawUI.WindowTitle = "SpectraBench v1.0 (Windows Edition)"
-
-# --- [ THE ENGINE: JIT NATIVE C# COMPILATION IN RAM ] ---
-$csharpCode = @"
-using System;
-using System.IO;
-using System.Diagnostics;
-
-public class SpectraCore {
-    public static double RunCpu() {
-        Stopwatch sw = Stopwatch.StartNew();
-        int c = 0;
-        for (int i = 2; i <= 100000; i++) {
-            bool p = true;
-            for (int j = 2; j * j <= i; j++) {
-                if (i % j == 0) { p = false; break; }
-            }
-            if (p) c++;
-        }
-        sw.Stop();
-        double e = sw.Elapsed.TotalSeconds;
-        if (e == 0) e = 0.001;
-        
-        // Anti-Dead Code Elimination (DCE) Trick: Forces compiler to fully execute the loop
-        return e + (c * 0.0); 
-    }
-
-    public static double RunRam() {
-        Stopwatch sw = Stopwatch.StartNew();
-        using (MemoryStream ms = new MemoryStream()) {
-            byte[] buf = new byte[1024 * 1024];
-            for (int i = 0; i < 500; i++) {
-                ms.Write(buf, 0, buf.Length);
-            }
-        }
-        sw.Stop();
-        double e = sw.Elapsed.TotalSeconds;
-        return e == 0 ? 0.001 : e;
-    }
-
-    public static double RunDisk(string path) {
-        Stopwatch sw = Stopwatch.StartNew();
-        using (FileStream fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.WriteThrough)) {
-            byte[] buf = new byte[1024 * 1024];
-            for (int i = 0; i < 500; i++) {
-                fs.Write(buf, 0, buf.Length);
-            }
-        }
-        sw.Stop();
-        double e = sw.Elapsed.TotalSeconds;
-        return e == 0 ? 0.001 : e;
-    }
-}
-"@
-
-# Inject and Compile in Memory securely
-if (-not ("SpectraCore" -as [type])) {
-    Add-Type -TypeDefinition $csharpCode -Language CSharp
-}
 
 # --- [ MAIN FUNCTIONS ] ---
 function Draw-Banner {
@@ -102,16 +44,36 @@ function Get-SysInfo {
 }
 
 function Run-CpuBench {
-    Write-Host "[*] Running CPU Single-Core Test (Prime Sieve 100k)..." -ForegroundColor Yellow
-    $elapsed = [SpectraCore]::RunCpu()
-    $elapsedRound = [math]::Round($elapsed, 5)
-    $script:cpuScore = [math]::Floor(50000 / $elapsed)
-    Write-Host "  [V] Completed in $($elapsedRound)s -> Score: $script:cpuScore`n" -ForegroundColor Green
+    Write-Host "[*] Running CPU ALU & Crypto Test (SHA-256 100MB)..." -ForegroundColor Yellow
+    # Create 100MB of null bytes in RAM (Perfect parity with /dev/zero in Linux)
+    $bytes = New-Object byte[](100MB)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    
+    $time = Measure-Command {
+        $sha.ComputeHash($bytes) | Out-Null
+    }
+    $sha.Dispose()
+    
+    $elapsed = [math]::Round($time.TotalSeconds, 4)
+    if ($elapsed -eq 0) { $elapsed = 0.001 }
+    $script:cpuScore = [math]::Floor(10000 / $elapsed)
+    Write-Host "  [V] Completed in $($elapsed)s -> Score: $script:cpuScore`n" -ForegroundColor Green
 }
 
 function Run-RamBench {
     Write-Host "[*] Running Volatile Memory I/O Test (500MB Native RAM)..." -ForegroundColor Yellow
-    $elapsed = [SpectraCore]::RunRam()
+    $time = Measure-Command {
+        $ms = New-Object System.IO.MemoryStream
+        $buffer = New-Object byte[] 1MB
+        for ($i = 0; $i -lt 500; $i++) {
+            $ms.Write($buffer, 0, $buffer.Length)
+        }
+        $ms.Dispose()
+        [System.GC]::Collect()
+    }
+    $elapsed = [math]::Round($time.TotalSeconds, 3)
+    
+    if ($elapsed -eq 0) { $elapsed = 0.001 }
     $speedMBps = [math]::Round((500 / $elapsed), 2)
     
     if ($speedMBps -ge 1024) {
@@ -127,10 +89,20 @@ function Run-RamBench {
 function Run-DiskBench {
     Write-Host "[*] Running Storage Drive I/O Test (500MB WriteThrough)..." -ForegroundColor Yellow
     $testFile = "$env:TEMP\.spectra_disk_test.tmp"
-    $elapsed = [SpectraCore]::RunDisk($testFile)
+    $time = Measure-Command {
+        $fs = New-Object System.IO.FileStream($testFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None, 1MB, [System.IO.FileOptions]::WriteThrough)
+        $buffer = New-Object byte[] 1MB
+        for ($i = 0; $i -lt 500; $i++) {
+            $fs.Write($buffer, 0, $buffer.Length)
+        }
+        $fs.Close()
+    }
     Remove-Item $testFile -Force
+    $elapsed = [math]::Round($time.TotalSeconds, 3)
     
+    if ($elapsed -eq 0) { $elapsed = 0.001 }
     $speedMBps = [math]::Round((500 / $elapsed), 2)
+    
     if ($speedMBps -ge 1024) {
         $speedStr = "$([math]::Round($speedMBps / 1024, 2)) GB/s"
     } else {
