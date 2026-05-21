@@ -82,7 +82,7 @@ curl -sL "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 Open **PowerShell as Administrator** and run:
 
 ```powershell
-iex (irm "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1](https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1)")
+iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1")
 
 ```
 
