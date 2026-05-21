@@ -121,5 +121,3 @@ We are continuously evolving SpectraBench to become the ultimate CLI benchmarkin
 ---
 
 **Crafted with precision by [Nabil**](https://github.com/nabilfp)
-
-```
