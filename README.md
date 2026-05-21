@@ -73,9 +73,7 @@ You don't even need to `git clone`. Run the benchmark directly from the reposito
 
 Open your terminal and run:
 
-```bash
-curl -sL "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh](https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh)" | sudo bash
-
+```bashcurl -sL "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh" | sudo bash
 ```
 
 ### 🪟 For Windows (10, 11, Server)
