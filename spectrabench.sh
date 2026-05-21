@@ -4,7 +4,7 @@
 # Project      : SpectraBench (v1.0-Core)
 # Description  : Zero-Dependency Cross-Platform System Benchmark
 # Author       : Nabil
-# Architecture : Pure Bash & AWK (Linux Native)
+# Architecture : Pure Bash & OS Native Binaries (Linux Native)
 # ===========================================================================
 
 # --- [ TRAP: GRACEFUL EXIT ] ---
@@ -52,13 +52,17 @@ function get_sys_info() {
 }
 
 function run_cpu_bench() {
-    echo -e "${YELLOW}[*] Running CPU Single-Core Test (Prime Sieve 100k)...${RESET}"
+    echo -e "${YELLOW}[*] Running CPU ALU & Crypto Test (SHA-256 100MB)...${RESET}"
+    CPU_FILE="/dev/shm/.spectra_cpu_test"
+    dd if=/dev/zero of=$CPU_FILE bs=1M count=100 status=none
+    
     start_time=$(date +%s.%N)
-    awk 'BEGIN{ for(i=2; i<=100000; i++){ p=1; for(j=2; j*j<=i; j++){ if(i%j==0){ p=0; break } } if(p) c++ } }'
+    sha256sum $CPU_FILE > /dev/null
     end_time=$(date +%s.%N)
     
+    rm -f $CPU_FILE
     elapsed=$(awk "BEGIN {print $end_time - $start_time}")
-    CPU_SCORE=$(awk "BEGIN {printf \"%d\", 50000 / $elapsed}")
+    CPU_SCORE=$(awk "BEGIN {printf \"%d\", 10000 / $elapsed}")
     echo -e "  ${GREEN}[V] Completed in ${elapsed}s -> Score: ${BOLD}${CPU_SCORE}${RESET}\n"
 }
 
