@@ -1,4 +1,4 @@
-# 🚀 SpectraBench (v1.1 Foundation)
+# 🚀 SpectraBench (v1 Foundation)
 
 > A blazing fast, zero-dependency, cross-platform system benchmarking tool. Designed for SysAdmins, Enthusiasts, and IT Professionals who need instant hardware validation without the bloatware.
 
@@ -32,7 +32,6 @@ Both scripts perform identical mathematical stress tests and raw memory/storage 
 ### ✨ Key Features
 - **Zero Dependencies:** Runs on fresh OS installations out-of-the-box.
 - **Ghost Mode Execution:** Can be executed directly in RAM without saving any files to the hard drive.
-- **Multilanguage (i18n):** Fully supports English, Bahasa Indonesia, and Mandarin (中文) via an interactive bootloader.
 - **Ephemeral Testing:** All I/O test files are created in volatile memory (`/dev/shm` or `$env:TEMP`) and automatically purged upon completion or a `Ctrl+C` interrupt.
 
 ---
@@ -111,7 +110,6 @@ iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 We are continuously evolving SpectraBench to become the ultimate CLI benchmarking suite.
 
 * [x] **v1.0 (Foundation):** Core CPU, RAM, and Storage tests.
-* [x] **v1.1 (Multilanguage):** i18n support (English, Indonesian, Mandarin).
 * [ ] **v2.0 (Multi-Threading):** Implement parallel background jobs to stress-test Multi-Core CPUs, plus thermal throttling detection.
 * [ ] **v3.0 (Network Edge):** Global DNS latency checks and upload/download bandwidth testing.
 * [ ] **v4.0 (Interactive Suite):** Modular testing menu (choose specific components to test) and JSON export capabilities.
