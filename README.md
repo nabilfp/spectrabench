@@ -1,11 +1,11 @@
-# 🚀 SpectraBench (v1 Foundation)
+# 🚀 SpectraBench (v1.0 Core Edition)
 
 > A blazing fast, zero-dependency, cross-platform system benchmarking tool. Designed for SysAdmins, Enthusiasts, and IT Professionals who need instant hardware validation without the bloatware.
 
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-lightgrey?style=flat-square)
 ![Language](https://img.shields.io/badge/Language-Bash%20%7C%20PowerShell-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-1.1-orange?style=flat-square)
+![Version](https://img.shields.io/badge/Version-1.0_Core-orange?style=flat-square)
 
 ---
 
@@ -32,6 +32,7 @@ Both scripts perform identical mathematical stress tests and raw memory/storage 
 ### ✨ Key Features
 - **Zero Dependencies:** Runs on fresh OS installations out-of-the-box.
 - **Ghost Mode Execution:** Can be executed directly in RAM without saving any files to the hard drive.
+- **Enterprise Standard:** Pure English CLI interface focused on speed, accuracy, and telemetry.
 - **Ephemeral Testing:** All I/O test files are created in volatile memory (`/dev/shm` or `$env:TEMP`) and automatically purged upon completion or a `Ctrl+C` interrupt.
 
 ---
@@ -45,16 +46,19 @@ Both scripts perform identical mathematical stress tests and raw memory/storage 
   ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  
 ▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ 
 ░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ 
-             v1.1 Foundation | Native Edition            
+             v1.0 Core | Linux Native Edition            
 ===============================================================
 
 [*] Gathering System Architecture...
-  OS       : Ubuntu 24.04 LTS
-  CPU      : AMD Ryzen 7 (16 Cores)
-  RAM      : 15Gi
+  OS       : Ubuntu 24.04.4 LTS
+  CPU      : AMD Ryzen 5 PRO 5650U with Radeon Graphics (12 Cores)
+  RAM      : 14Gi
 
 [*] Running CPU Single-Core Test (Prime Sieve 100k)...
-  [V] Completed in 0.842s -> Score: 59382
+  [V] Completed in 0.24052s -> Score: 207882
+
+[*] Running Volatile Memory I/O Test (500MB to /dev/shm)...
+  [V] Memory Speed: 1.4 GB/s -> Score: 17203
 ...
 
 ```
@@ -70,7 +74,7 @@ You don't even need to `git clone`. Run the benchmark directly from the reposito
 Open your terminal and run:
 
 ```bash
-curl -sL "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh" | sudo bash
+curl -sL "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh](https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh)" | sudo bash
 
 ```
 
@@ -79,7 +83,7 @@ curl -sL "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 Open **PowerShell as Administrator** and run:
 
 ```powershell
-iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1")
+iex (irm "[https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1](https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1)")
 
 ```
 
@@ -88,8 +92,8 @@ iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 ## 🛠️ How It Works (The Metrics)
 
 1. **CPU Score:** Executes a complex Prime Number Sieve (up to 100,000) using native math operators (`awk` in Linux, `for-loops` in PowerShell). Measures single-core logic, branching, and ALU (Arithmetic Logic Unit) performance.
-2. **RAM Score:** Allocates and writes a massive byte array directly into volatile memory, testing RAM bandwidth and OS memory management overhead.
-3. **Disk Score:** Forces a sequential write of 500MB to the primary storage drive. It uses `fdatasync` (Linux) and flush buffers (Windows) to bypass OS caching, measuring the true hardware write speed.
+2. **RAM Score:** Streams a massive 500MB byte block directly into volatile memory (`/dev/shm` in Linux, `MemoryStream` in .NET), testing pure RAM bandwidth limits.
+3. **Disk Score:** Forces a sequential write of 500MB to the primary storage drive. It strictly uses `fdatasync` (Linux) and `FileOptions.WriteThrough` (Windows) to aggressively bypass OS caching mechanisms, measuring true hardware write speed.
 
 ---
 
@@ -97,9 +101,9 @@ iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 
 **Why does SpectraBench require `sudo` (Linux) or `Administrator` (Windows)?**
 
-* **Disk Benchmarking:** Bypassing the OS cache to measure true raw disk speed requires low-level kernel I/O access.
+* **Disk Benchmarking:** Bypassing the OS cache to measure true raw disk speed requires low-level kernel I/O access and WriteThrough flags.
 * **RAM Benchmarking (Linux):** Writing massive chunks directly to `/dev/shm` requires elevated privileges to prevent user-space memory limits from bottlenecking the test.
-* **Trace Destruction:** The script automatically deletes its own temporary 500MB payload files upon completion to keep your system clean, which requires write/delete permissions in root temp directories.
+* **Trace Destruction:** The script automatically deletes its own temporary 500MB payload files upon completion to keep your system clean, which requires write/delete permissions in system temp directories.
 
 *We encourage you to read the source code. It's 100% transparent, contained in a single file per OS, and contains absolutely zero telemetry.*
 
@@ -109,7 +113,7 @@ iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 
 We are continuously evolving SpectraBench to become the ultimate CLI benchmarking suite.
 
-* [x] **v1.0 (Foundation):** Core CPU, RAM, and Storage tests.
+* [x] **v1.0 (Core):** Core CPU, RAM, and Storage tests with cache-bypass architecture.
 * [ ] **v2.0 (Multi-Threading):** Implement parallel background jobs to stress-test Multi-Core CPUs, plus thermal throttling detection.
 * [ ] **v3.0 (Network Edge):** Global DNS latency checks and upload/download bandwidth testing.
 * [ ] **v4.0 (Interactive Suite):** Modular testing menu (choose specific components to test) and JSON export capabilities.
