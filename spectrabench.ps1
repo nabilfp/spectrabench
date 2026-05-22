@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-Project      : SpectraBench (v1.0-Core)
+Project      : SpectraBench (v2.0-MultiThread)
 Description  : Zero-Dependency Cross-Platform System Benchmark
 Author       : Nabil
-Architecture : Pure PowerShell Native
+Architecture : PowerShell with Embedded C# Parallel Engine
 #>
 
 # --- [ REQUIRE ADMIN ] ---
@@ -13,7 +13,32 @@ if (-not $isAdmin) {
     Exit
 }
 
-$Host.UI.RawUI.WindowTitle = "SpectraBench v1.0 (Windows Edition)"
+$Host.UI.RawUI.WindowTitle = "SpectraBench v2.0 (Windows Edition)"
+
+# --- [ THE ENGINE: NATIVE PARALLELISM INJECTION ] ---
+$csharpCode = @"
+using System;
+using System.Threading.Tasks;
+using System.Security.Cryptography;
+using System.Diagnostics;
+
+public class SpectraMultiCore {
+    public static double RunStress(int cores) {
+        Stopwatch sw = Stopwatch.StartNew();
+        Parallel.For(0, cores, i => {
+            byte[] data = new byte[50 * 1024 * 1024]; // 50MB per thread
+            using (SHA256 sha = SHA256.Create()) {
+                sha.ComputeHash(data);
+            }
+        });
+        sw.Stop();
+        return sw.Elapsed.TotalSeconds == 0 ? 0.001 : sw.Elapsed.TotalSeconds;
+    }
+}
+"@
+if (-not ("SpectraMultiCore" -as [type])) {
+    Add-Type -TypeDefinition $csharpCode -Language CSharp
+}
 
 # --- [ MAIN FUNCTIONS ] ---
 function Draw-Banner {
@@ -24,7 +49,7 @@ function Draw-Banner {
     Write-Host "  ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  " -ForegroundColor Magenta
     Write-Host "▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ " -ForegroundColor Magenta
     Write-Host "░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ " -ForegroundColor Magenta
-    Write-Host "             v1.0 Core | Windows Native Edition            " -ForegroundColor Cyan
+    Write-Host "          v2.0 Multi-Threaded | Windows Native Edition         " -ForegroundColor Cyan
     Write-Host "===============================================================" -ForegroundColor Cyan
     Write-Host ""
 }
@@ -33,31 +58,45 @@ function Get-SysInfo {
     Write-Host "[*] Gathering System Architecture..." -ForegroundColor Yellow
     $os = (Get-CimInstance Win32_OperatingSystem).Caption
     $cpu = (Get-CimInstance Win32_Processor).Name
-    $cores = (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
+    $script:cores = (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
     $ramRaw = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
     $ram = [math]::Round($ramRaw / 1GB, 2)
 
     Write-Host "  OS       : $os" -ForegroundColor Cyan
-    Write-Host "  CPU      : $cpu ($cores Threads)" -ForegroundColor Cyan
+    Write-Host "  CPU      : $cpu ($script:cores Threads)" -ForegroundColor Cyan
     Write-Host "  RAM      : $ram GB`n" -ForegroundColor Cyan
     Start-Sleep -Seconds 1
 }
 
+function Get-Temp {
+    try {
+        $t = Get-CimInstance -Namespace "root\wmi" -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop | Sort-Object CurrentTemperature -Descending | Select-Object -First 1
+        if ($t) { return [math]::Round(($t.CurrentTemperature / 10) - 273.15, 0) }
+    } catch { }
+    return "N/A"
+}
+
 function Run-CpuBench {
-    Write-Host "[*] Running CPU ALU & Crypto Test (SHA-256 100MB)..." -ForegroundColor Yellow
-    # Create 100MB of null bytes in RAM (Perfect parity with /dev/zero in Linux)
-    $bytes = New-Object byte[](100MB)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
+    Write-Host "[*] Running Multi-Core Stress Test (SHA-256 on $($script:cores) Threads)..." -ForegroundColor Yellow
+    $tempStart = Get-Temp
     
-    $time = Measure-Command {
-        $sha.ComputeHash($bytes) | Out-Null
+    $elapsed = [SpectraMultiCore]::RunStress($script:cores)
+    
+    $tempEnd = Get-Temp
+    
+    $elapsedRound = [math]::Round($elapsed, 4)
+    $script:cpuScore = [math]::Floor((10000 * $script:cores) / $elapsed)
+    Write-Host "  [V] Completed in $($elapsedRound)s -> Score: $script:cpuScore" -ForegroundColor Green
+    
+    if ($tempStart -ne "N/A" -and $tempEnd -ne "N/A") {
+        if ($tempEnd -ge 85) {
+            Write-Host "  [!] THERMAL THROTTLING DETECTED (Max: ${tempEnd}°C)`n" -ForegroundColor Red
+        } else {
+            Write-Host "  [ Thermals: ${tempStart}°C -> ${tempEnd}°C ]`n" -ForegroundColor Cyan
+        }
+    } else {
+        Write-Host "  [ Thermals: N/A (Locked by OEM) ]`n" -ForegroundColor Cyan
     }
-    $sha.Dispose()
-    
-    $elapsed = [math]::Round($time.TotalSeconds, 4)
-    if ($elapsed -eq 0) { $elapsed = 0.001 }
-    $script:cpuScore = [math]::Floor(10000 / $elapsed)
-    Write-Host "  [V] Completed in $($elapsed)s -> Score: $script:cpuScore`n" -ForegroundColor Green
 }
 
 function Run-RamBench {
