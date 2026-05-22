@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ===========================================================================
-# Project      : SpectraBench (v1.0-Core)
+# Project      : SpectraBench (v2.0-MultiThread)
 # Description  : Zero-Dependency Cross-Platform System Benchmark
 # Author       : Nabil
-# Architecture : Pure Bash & OS Native Binaries (Linux Native)
+# Architecture : Pure Bash, Parallel Jobs & Thermal Detection
 # ===========================================================================
 
 # --- [ TRAP: GRACEFUL EXIT ] ---
@@ -34,7 +34,7 @@ function draw_banner() {
     echo -e "  ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  "
     echo -e "▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ "
     echo -e "░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ ${RESET}"
-    echo -e "${CYAN}             v1.0 Core | Linux Native Edition            ${RESET}"
+    echo -e "${CYAN}          v2.0 Multi-Threaded | Linux Native Edition         ${RESET}"
     echo -e "${CYAN}===============================================================${RESET}\n"
 }
 
@@ -46,24 +46,51 @@ function get_sys_info() {
     OS_NAME=$(cat /etc/os-release | grep "PRETTY_NAME" | cut -d'=' -f2 | tr -d '\"')
     
     echo -e "  ${CYAN}OS       :${RESET} $OS_NAME"
-    echo -e "  ${CYAN}CPU      :${RESET} $CPU_MODEL ($CPU_CORES Cores)"
+    echo -e "  ${CYAN}CPU      :${RESET} $CPU_MODEL ($CPU_CORES Threads)"
     echo -e "  ${CYAN}RAM      :${RESET} $RAM_TOTAL\n"
     sleep 1.5
 }
 
+function get_temp() {
+    local t_raw=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -nr | head -1)
+    if [[ -n "$t_raw" && "$t_raw" -gt 0 ]]; then
+        echo $(( t_raw / 1000 ))
+    else
+        echo "N/A"
+    fi
+}
+
 function run_cpu_bench() {
-    echo -e "${YELLOW}[*] Running CPU ALU & Crypto Test (SHA-256 100MB)...${RESET}"
-    CPU_FILE="/dev/shm/.spectra_cpu_test"
-    dd if=/dev/zero of=$CPU_FILE bs=1M count=100 status=none
+    echo -e "${YELLOW}[*] Running Multi-Core Stress Test (SHA-256 on $CPU_CORES Threads)...${RESET}"
+    temp_start=$(get_temp)
     
     start_time=$(date +%s.%N)
-    sha256sum $CPU_FILE > /dev/null
-    end_time=$(date +%s.%N)
     
-    rm -f $CPU_FILE
+    # Spawning parallel background jobs equal to CPU Threads
+    for ((i=1; i<=CPU_CORES; i++)); do
+        dd if=/dev/zero bs=1M count=50 status=none | sha256sum > /dev/null &
+    done
+    wait # Wait for all background threads to finish
+    
+    end_time=$(date +%s.%N)
+    temp_end=$(get_temp)
+    
     elapsed=$(awk "BEGIN {print $end_time - $start_time}")
-    CPU_SCORE=$(awk "BEGIN {printf \"%d\", 10000 / $elapsed}")
-    echo -e "  ${GREEN}[V] Completed in ${elapsed}s -> Score: ${BOLD}${CPU_SCORE}${RESET}\n"
+    # Math: Multiplied by core count to scale the score dynamically
+    CPU_SCORE=$(awk "BEGIN {printf \"%d\", (10000 * $CPU_CORES) / $elapsed}")
+    
+    echo -e "  ${GREEN}[V] Completed in ${elapsed}s -> Score: ${BOLD}${CPU_SCORE}${RESET}"
+    
+    # Thermal Throttling Logic
+    if [[ "$temp_start" != "N/A" && "$temp_end" != "N/A" ]]; then
+        if [[ "$temp_end" -ge 85 ]]; then
+            echo -e "  ${RED}[!] THERMAL THROTTLING DETECTED (Max: ${temp_end}°C)${RESET}\n"
+        else
+            echo -e "  ${CYAN}[ Thermals: ${temp_start}°C -> ${temp_end}°C ]${RESET}\n"
+        fi
+    else
+        echo -e "  ${CYAN}[ Thermals: N/A (Locked by OEM) ]${RESET}\n"
+    fi
 }
 
 function run_ram_bench() {
