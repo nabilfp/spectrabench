@@ -7,15 +7,6 @@
 # Architecture : Pure Bash, Sustained Stress, TTY-Safe Interactive UI
 # ===========================================================================
 
-# --- [ TRAP: GRACEFUL EXIT ] ---
-trap 'echo -e "\n\n\033[0;31m[!] Benchmark aborted. Cleaning up...\033[0m"; rm -f /dev/shm/.spectra_* /tmp/.spectra_*; exit 1' SIGINT SIGTERM
-
-# --- [ REQUIRE ROOT ] ---
-if [[ $EUID -ne 0 ]]; then
-   echo -e "\033[0;31m[!] Access Denied. SpectraBench requires root (sudo).\033[0m"
-   exit 1
-fi
-
 # --- [ UI COLOR VARIABLES ] ---
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -24,6 +15,25 @@ MAGENTA='\033[0;35m'
 YELLOW='\033[1;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
+
+# --- [ TTY CHECK FOR INTERACTIVE MODE ] ---
+# Safeguard to prevent infinite loop if executed via standard 'curl | bash'
+if [[ ! -t 0 ]]; then
+    echo -e "${RED}[!] Piped Execution Detected (curl | bash)${RESET}"
+    echo -e "${YELLOW}SpectraBench v4.0+ features an interactive UI that requires keyboard access.${RESET}"
+    echo -e "Please run Ghost Mode using this secure command instead:\n"
+    echo -e "${CYAN}sudo bash -c \"\$(curl -sL https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh)\"${RESET}\n"
+    exit 1
+fi
+
+# --- [ TRAP: GRACEFUL EXIT ] ---
+trap 'echo -e "\n\n\033[0;31m[!] Benchmark aborted. Cleaning up...\033[0m"; rm -f /dev/shm/.spectra_* /tmp/.spectra_*; exit 1' SIGINT SIGTERM
+
+# --- [ REQUIRE ROOT ] ---
+if [[ $EUID -ne 0 ]]; then
+   echo -e "\033[0;31m[!] Access Denied. SpectraBench requires root (sudo).\033[0m"
+   exit 1
+fi
 
 # --- [ GLOBAL VARIABLES ] ---
 CPU_CORES=$(nproc)
@@ -60,8 +70,7 @@ function get_temp() {
 
 function pause_continue() {
     echo -e "\n${CYAN}Press [ENTER] to return to the menu...${RESET}"
-    # FIX: /dev/tty ensures we read from the keyboard, not the curl pipe
-    read -r </dev/tty
+    read -r
 }
 
 # --- [ TEST MODULES ] ---
@@ -72,7 +81,6 @@ function test_cpu() {
     
     start_time=$(date +%s.%N)
     for ((i=1; i<=CPU_CORES; i++)); do
-        # 1GB Data per thread to force sustained turbo load
         dd if=/dev/zero bs=1M count=1000 status=none | sha256sum > /dev/null &
     done
     wait
@@ -80,7 +88,6 @@ function test_cpu() {
     end_time=$(date +%s.%N)
     temp_end=$(get_temp)
     
-    # Safeguard against zero division
     elapsed=$(awk "BEGIN { e = $end_time - $start_time; if (e == 0) e = 0.001; print e }")
     SCORE_CPU=$(awk "BEGIN {printf \"%d\", (1000 * $CPU_CORES) / $elapsed}")
     
@@ -93,7 +100,6 @@ function test_cpu() {
 function test_ram() {
     echo -e "${YELLOW}[*] Deep Memory Bandwidth (1GB Random Allocations to /dev/shm)...${RESET}"
     RAM_FILE="/dev/shm/.spectra_ram_test"
-    # 64KB blocks to test memory allocation latency
     RAM_SPEED_FULL=$(LC_ALL=C dd if=/dev/zero of=$RAM_FILE bs=64k count=16384 2>&1 | awk '/copied/ {print $(NF-1), $NF}')
     rm -f $RAM_FILE
     
@@ -120,7 +126,7 @@ function test_disk() {
     [[ "$unit" == *"GB/s"* ]] && raw_val=$(awk "BEGIN {print $raw_val * 1024}")
     [[ "$unit" == *"kB/s"* ]] && raw_val=$(awk "BEGIN {print $raw_val / 1024}")
     
-    SCORE_DISK=$(awk "BEGIN {printf \"%d\", $raw_val * 2}")
+    SCORE_DISK=$(awk "BEGIN {printf \"%d\", $raw_val * 8}")
     echo -e "  ${GREEN}[V] Disk Speed: $DISK_SPEED_FULL -> Disk Score: ${BOLD}${SCORE_DISK}${RESET}"
 }
 
@@ -178,8 +184,7 @@ while true; do
     echo -e "  ${RED}0.${RESET} ❌ Exit"
     echo -e "${CYAN}-----------------------------------------------------------------${RESET}"
     
-    # FIX: Explicitly forcing read to listen to the user's TTY keyboard
-    read -r -p "Enter your choice [0-5]: " choice </dev/tty
+    read -r -p "Enter your choice [0-5]: " choice
     
     case $choice in
         1) echo ""; run_all; pause_continue ;;
