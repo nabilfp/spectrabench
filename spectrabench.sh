@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ===========================================================================
-# Project      : SpectraBench (v2.0-MultiThread)
+# Project      : SpectraBench (v3.0-NetworkEdge)
 # Description  : Zero-Dependency Cross-Platform System Benchmark
 # Author       : Nabil
-# Architecture : Pure Bash, Parallel Jobs & Thermal Detection
+# Architecture : Pure Bash, Parallel Jobs, Thermal & Network Ping
 # ===========================================================================
 
 # --- [ TRAP: GRACEFUL EXIT ] ---
@@ -34,7 +34,7 @@ function draw_banner() {
     echo -e "  ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  "
     echo -e "▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ "
     echo -e "░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ ${RESET}"
-    echo -e "${CYAN}          v2.0 Multi-Threaded | Linux Native Edition         ${RESET}"
+    echo -e "${CYAN}            v3.0 Network Edge | Linux Native Edition         ${RESET}"
     echo -e "${CYAN}===============================================================${RESET}\n"
 }
 
@@ -66,22 +66,21 @@ function run_cpu_bench() {
     
     start_time=$(date +%s.%N)
     
-    # Spawning parallel background jobs equal to CPU Threads
     for ((i=1; i<=CPU_CORES; i++)); do
         dd if=/dev/zero bs=1M count=50 status=none | sha256sum > /dev/null &
     done
-    wait # Wait for all background threads to finish
+    wait
     
     end_time=$(date +%s.%N)
     temp_end=$(get_temp)
     
     elapsed=$(awk "BEGIN {print $end_time - $start_time}")
-    # Math: Multiplied by core count to scale the score dynamically
-    CPU_SCORE=$(awk "BEGIN {printf \"%d\", (10000 * $CPU_CORES) / $elapsed}")
+    
+    # NEW FORMULA: Scaled down to thousands (Fair Mode)
+    CPU_SCORE=$(awk "BEGIN {printf \"%d\", (50 * $CPU_CORES) / $elapsed}")
     
     echo -e "  ${GREEN}[V] Completed in ${elapsed}s -> Score: ${BOLD}${CPU_SCORE}${RESET}"
     
-    # Thermal Throttling Logic
     if [[ "$temp_start" != "N/A" && "$temp_end" != "N/A" ]]; then
         if [[ "$temp_end" -ge 85 ]]; then
             echo -e "  ${RED}[!] THERMAL THROTTLING DETECTED (Max: ${temp_end}°C)${RESET}\n"
@@ -133,14 +132,45 @@ function run_disk_bench() {
     echo -e "  ${GREEN}[V] Disk Speed: $DISK_SPEED_FULL -> Score: ${BOLD}${DISK_SCORE}${RESET}\n"
 }
 
+function run_network_bench() {
+    echo -e "${YELLOW}[*] Running Network Edge Test (DNS Latency & CDN Bandwidth)...${RESET}"
+    
+    ping_out=$(ping -c 3 1.1.1.1 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        latency=$(echo "$ping_out" | tail -1 | awk -F '/' '{print $5}')
+        [ -z "$latency" ] && latency=999
+    else
+        latency=999
+    fi
+
+    dl_bps=$(curl -s -w "%{speed_download}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=50000000" 2>/dev/null)
+    dl_mbps=$(awk "BEGIN {printf \"%.2f\", $dl_bps / 1024 / 1024}")
+    
+    if [ $(awk "BEGIN {print ($latency >= 999)}") -eq 1 ]; then
+        lat_score=0
+        latency_str="Offline / Timeout"
+    else
+        lat_score=$(awk "BEGIN {printf \"%d\", 5000 / $latency}")
+        latency_str="${latency} ms"
+    fi
+    
+    bw_score=$(awk "BEGIN {printf \"%d\", $dl_mbps * 20}")
+    NET_SCORE=$((lat_score + bw_score))
+    
+    echo -e "  ${CYAN}Global DNS Ping   :${RESET} $latency_str"
+    echo -e "  ${CYAN}CDN Download Speed:${RESET} $dl_mbps MB/s"
+    echo -e "  ${GREEN}[V] Network Evaluated -> Score: ${BOLD}${NET_SCORE}${RESET}\n"
+}
+
 function show_results() {
-    TOTAL_SCORE=$((CPU_SCORE + RAM_SCORE + DISK_SCORE))
+    TOTAL_SCORE=$((CPU_SCORE + RAM_SCORE + DISK_SCORE + NET_SCORE))
     echo -e "${MAGENTA}===============================================================${RESET}"
     echo -e "${BOLD}                 🏆 SPECTRA BENCHMARK RESULTS 🏆               ${RESET}"
     echo -e "${MAGENTA}===============================================================${RESET}"
     echo -e "  ${CYAN}CPU Score      :${RESET} $CPU_SCORE"
     echo -e "  ${CYAN}RAM Score      :${RESET} $RAM_SCORE"
     echo -e "  ${CYAN}Disk Score     :${RESET} $DISK_SCORE"
+    echo -e "  ${CYAN}Network Score  :${RESET} $NET_SCORE"
     echo -e "---------------------------------------------------------------"
     echo -e "  ${YELLOW}${BOLD}TOTAL SCORE    : $TOTAL_SCORE${RESET}"
     echo -e "${MAGENTA}===============================================================${RESET}"
@@ -151,4 +181,5 @@ get_sys_info
 run_cpu_bench
 run_ram_bench
 run_disk_bench
+run_network_bench
 show_results
