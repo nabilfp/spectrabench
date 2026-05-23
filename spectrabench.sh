@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ===========================================================================
-# Project      : SpectraBench (v4.0-DeepScan Interactive)
+# Project      : SpectraBench (v4.0.1-DeepScan Interactive)
 # Description  : Zero-Dependency Cross-Platform System Benchmark
 # Author       : Nabil
-# Architecture : Pure Bash, Sustained Stress, Interactive UI
+# Architecture : Pure Bash, Sustained Stress, TTY-Safe Interactive UI
 # ===========================================================================
 
 # --- [ TRAP: GRACEFUL EXIT ] ---
@@ -38,7 +38,7 @@ function draw_banner() {
     echo -e "  ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  "
     echo -e "▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ "
     echo -e "░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ ${RESET}"
-    echo -e "${CYAN}      v4.0 Deep-Scan Interactive Suite | Linux Native Edition    ${RESET}"
+    echo -e "${CYAN}      v4.0.1 Deep-Scan Interactive Suite | Linux Edition         ${RESET}"
     echo -e "${CYAN}=================================================================${RESET}\n"
 }
 
@@ -60,7 +60,8 @@ function get_temp() {
 
 function pause_continue() {
     echo -e "\n${CYAN}Press [ENTER] to return to the menu...${RESET}"
-    read -r
+    # FIX: /dev/tty ensures we read from the keyboard, not the curl pipe
+    read -r </dev/tty
 }
 
 # --- [ TEST MODULES ] ---
@@ -78,9 +79,9 @@ function test_cpu() {
     
     end_time=$(date +%s.%N)
     temp_end=$(get_temp)
-    elapsed=$(awk "BEGIN {print $end_time - $start_time}")
     
-    # Mathematical Calibration: Scores in thousands
+    # Safeguard against zero division
+    elapsed=$(awk "BEGIN { e = $end_time - $start_time; if (e == 0) e = 0.001; print e }")
     SCORE_CPU=$(awk "BEGIN {printf \"%d\", (1000 * $CPU_CORES) / $elapsed}")
     
     echo -e "  ${GREEN}[V] Elapsed: ${elapsed}s -> CPU Score: ${BOLD}${SCORE_CPU}${RESET}"
@@ -92,7 +93,7 @@ function test_cpu() {
 function test_ram() {
     echo -e "${YELLOW}[*] Deep Memory Bandwidth (1GB Random Allocations to /dev/shm)...${RESET}"
     RAM_FILE="/dev/shm/.spectra_ram_test"
-    # 64KB blocks to test memory allocation latency, not just sequential
+    # 64KB blocks to test memory allocation latency
     RAM_SPEED_FULL=$(LC_ALL=C dd if=/dev/zero of=$RAM_FILE bs=64k count=16384 2>&1 | awk '/copied/ {print $(NF-1), $NF}')
     rm -f $RAM_FILE
     
@@ -176,7 +177,9 @@ while true; do
     echo -e "  ${CYAN}5.${RESET} 🌐 Test Network (Global Edge & CDN)"
     echo -e "  ${RED}0.${RESET} ❌ Exit"
     echo -e "${CYAN}-----------------------------------------------------------------${RESET}"
-    read -r -p "Enter your choice [0-5]: " choice
+    
+    # FIX: Explicitly forcing read to listen to the user's TTY keyboard
+    read -r -p "Enter your choice [0-5]: " choice </dev/tty
     
     case $choice in
         1) echo ""; run_all; pause_continue ;;
