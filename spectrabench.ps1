@@ -151,7 +151,7 @@ function Test-Disk {
 }
 
 function Test-Network {
-    Write-Host "[*] Network Edge Ping & 100MB CDN Payload Download..." -ForegroundColor Yellow
+    Write-Host "[*] Network Edge Ping & 100MB Enterprise CDN Download..." -ForegroundColor Yellow
     $ping = Get-WmiObject Win32_PingStatus -Filter "Address='1.1.1.1'" | Select-Object -First 1
     if ($ping -and $ping.StatusCode -eq 0) {
         $latency = $ping.ResponseTime
@@ -162,16 +162,34 @@ function Test-Network {
         $latScore = 0; $latStr = "Offline/Timeout"
     }
 
-    $dlUrl = "https://speed.cloudflare.com/__down?bytes=100000000"
+    $url1 = "https://proof.ovh.net/files/100Mb.dat"
+    $url2 = "https://speed.hetzner.de/100MB.bin"
     $tmpFile = "$env:TEMP\.spectra_dl_test.tmp"
+    
+    $elapsed = 0
     try {
         $wc = New-Object System.Net.WebClient
-        $time = Measure-Command { $wc.DownloadFile($dlUrl, $tmpFile) }
+        $time = Measure-Command { $wc.DownloadFile($url1, $tmpFile) }
         $wc.Dispose(); Remove-Item $tmpFile -Force
-        $elapsed = $time.TotalSeconds; if ($elapsed -eq 0) { $elapsed = 0.001 }
+        $elapsed = $time.TotalSeconds
+    } catch {
+        try {
+            $wc = New-Object System.Net.WebClient
+            $time = Measure-Command { $wc.DownloadFile($url2, $tmpFile) }
+            $wc.Dispose(); Remove-Item $tmpFile -Force
+            $elapsed = $time.TotalSeconds
+        } catch {
+            $elapsed = 0
+        }
+    }
+    
+    if ($elapsed -gt 0) {
         $dlMbps = [math]::Round((100 / $elapsed), 2)
         $bwScore = [math]::Floor($dlMbps * 15)
-    } catch { $dlMbps = 0; $bwScore = 0 }
+    } else {
+        $dlMbps = 0
+        $bwScore = 0
+    }
 
     $script:scoreNet = $latScore + $bwScore
     Write-Host "  DNS Latency : $latStr | Bandwidth : $dlMbps MB/s" -ForegroundColor Cyan
