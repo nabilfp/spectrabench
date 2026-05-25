@@ -163,7 +163,10 @@ function test_network() {
         [ -z "$latency" ] && latency=999
     else latency=999; fi
 
-    dl_bps=$(curl -s -w "%{speed_download}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=100000000" 2>/dev/null)
+    # FIX: Menggunakan CacheFly CDN (Anti-Block) & LC_ALL=C (Mencegah Bug Koma pada Desimal)
+    dl_bps=$(LC_ALL=C curl -sL -w "%{speed_download}" -o /dev/null "https://cachefly.cachefly.net/100mb.test" 2>/dev/null)
+    [ -z "$dl_bps" ] && dl_bps=0
+    
     dl_mbps=$(awk "BEGIN {printf \"%.2f\", $dl_bps / 1024 / 1024}")
     
     if [ $(awk "BEGIN {print ($latency >= 999)}") -eq 1 ]; then lat_score=0; latency_str="Offline/Timeout"
