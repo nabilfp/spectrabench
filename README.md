@@ -1,39 +1,40 @@
-# 🚀 SpectraBench (v2.0 Multi-Threaded Edition)
+# 🚀 SpectraBench (v5.0 Omni-Platform)
 
-> A blazing fast, zero-dependency, cross-platform system benchmarking tool. Designed for SysAdmins, Enthusiasts, and IT Professionals who need instant hardware validation without the bloatware.
+> A blazing fast, zero-dependency, ultimate system benchmarking suite. Designed for SysAdmins, Enthusiasts, and IT Professionals who demand sustained stress-testing and true hardware validation across Servers, PCs, and Edge Devices without the bloatware.
 
 ![License](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)
-![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-lightgrey?style=flat-square)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20Android-lightgrey?style=flat-square)
 ![Language](https://img.shields.io/badge/Language-Bash%20%7C%20PowerShell-green?style=flat-square)
-![Version](https://img.shields.io/badge/Version-2.0_Multi--Threaded-orange?style=flat-square)
+![Version](https://img.shields.io/badge/Version-5.0_Omni--Platform-orange?style=flat-square)
 
 ---
 
 ## 📑 Table of Contents
 - [The Philosophy](#-the-philosophy)
-- [Preview](#-preview)
+- [New in v5.0](#-new-in-v50)
 - [Quick Start (Ghost Mode)](#-quick-start-ghost-mode)
-- [How It Works (The Engine & Metrics)](#️-how-it-works-the-engine--metrics)
+- [How It Works (The Metrics)](#️-how-it-works-the-metrics)
+- [Strategic Roadmap](#-strategic-roadmap)
 - [Security & Transparency](#-security--transparency)
-- [Project Roadmap](#-project-roadmap)
 
 ---
 
 ## 📖 The Philosophy
 
-Most modern benchmark tools are fantastic, but they share a common flaw when it comes to rapid triage: **they are heavy**. They require gigabytes of downloads, GUI installations, and leave residual registry keys or temp files in your OS. 
+Most modern benchmark tools require gigabytes of downloads, complex GUI installations, and leave residual files deeply embedded in your OS. **SpectraBench** solves this by utilizing a "Sister Scripts" architecture:
 
-**SpectraBench** solves this by utilizing a "Sister Scripts" architecture:
-1. `spectrabench.sh` (Native Linux Bash)
-2. `spectrabench.ps1` (Native Windows PowerShell)
+1. `spectrabench.sh` (Native Linux Bash & Termux Android)
+2. `spectrabench.ps1` (Native Windows PowerShell + Embedded C#)
 
-Both scripts perform identical hardware-level stress tests and raw memory/storage I/O operations directly via the OS kernel. **No external dependencies. Just pure, native architecture.**
+Both scripts perform identical hardware-level sustained stress tests directly via the OS kernel. **No external frameworks, no compiler installations. Just pure, native execution.**
 
-### ✨ Key Features
-- **Zero Dependencies:** Runs on fresh OS installations out-of-the-box.
-- **Ghost Mode Execution:** Executed directly in RAM without saving any files to the hard drive.
-- **Thermal Detection [NEW]:** Detects system ACPI/WMI Thermal Zones to log pre-test and post-test CPU temperatures, actively flagging Thermal Throttling.
-- **Ephemeral Testing:** All I/O test files are created in volatile memory (`/dev/shm` or `$env:TEMP`) and automatically purged upon completion or a `Ctrl+C` interrupt.
+---
+
+## 🌟 New in v5.0 (The Singularity Update)
+- **Omni-Platform AI:** The Linux script intelligently detects Android environments (`Termux`) to dynamically adapt filesystem paths and kernel permissions, enabling pure hardware testing on mobile ARM chips without root access.
+- **The Singularity Load (Sustained Stress):** CPU payloads are aggressively increased to **5GB of Cryptographic Hashing per thread**. This enforces a true sustained thermal load, separating short-burst turbo speeds from genuine, long-term hardware Thermal Throttling.
+- **Massive I/O Exhaustion:** Disk tests now enforce 5GB sustained writes to entirely deplete SSD/UFS SLC caches, revealing true underlying NAND speeds.
+- **TTY-Safe Interactive UI:** A robust, pipeline-safe interactive terminal menu prevents execution loops when triggered via remote web requests (`curl`).
 
 ---
 
@@ -46,24 +47,22 @@ Both scripts perform identical hardware-level stress tests and raw memory/storag
   ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  
 ▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ 
 ░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ 
-          v2.0 Multi-Threaded | Linux Native Edition         
-===============================================================
+    v5.0 Omni-Platform Singularity Suite | Linux & Android       
+=================================================================
 
 [*] Gathering System Architecture...
-  OS       : Ubuntu 24.04.4 LTS
+  OS       : Ubuntu 24.04 LTS
   CPU      : AMD Ryzen 5 PRO 5650U with Radeon Graphics (12 Threads)
   RAM      : 14Gi
 
-[*] Running Multi-Core Stress Test (SHA-256 on 12 Threads)...
-  [V] Completed in 0.09106s -> Score: 1317741
-  [ Thermals: 47°C -> 47°C ]
-
-[*] Running Volatile Memory I/O Test (500MB to /dev/shm)...
-  [V] Memory Speed: 2.8 GB/s -> Score: 34406
-
-[*] Running Storage Drive I/O Test (500MB Sequential)...
-  [V] Disk Speed: 1.4 GB/s -> Score: 11468
-...
+Select an operation to perform:
+  1. 🚀 Run Full Singularity Benchmark Suite
+  2. 🧠 Test CPU (5GB Singularity Multi-Core Load)
+  3. ⚡ Test RAM (Allocation Latency & Bandwidth)
+  4. 💾 Test Storage (5GB SLC Cache Exhaustion)
+  5. 🌐 Test Network (Global Edge & 100MB CDN)
+  0. ❌ Exit
+-----------------------------------------------------------------
 
 ```
 
@@ -71,14 +70,15 @@ Both scripts perform identical hardware-level stress tests and raw memory/storag
 
 ## ⚡ Quick Start (Ghost Mode)
 
-Run the benchmark directly from the repository into your system's volatile memory.
+Execute the benchmark directly from the repository into your system's volatile memory. No files are permanently saved to your drive.
 
-### 🐧 For Linux (Debian, Ubuntu, RHEL, Arch)
+### 🐧 For Linux & Termux (Debian, Ubuntu, Arch, Android)
 
-Open your terminal and run:
+Open your terminal and run the secure string-evaluation command:
 
 ```bash
-curl -sL "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh" | sudo bash
+# Note: For standard Linux, prefix with 'sudo'. For Termux (Android), run as is.
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh)"
 
 ```
 
@@ -93,14 +93,37 @@ iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 
 ---
 
-## 🛠️ How It Works (The Engine & Metrics)
+## 🛠️ How It Works (The Metrics)
 
-In order to provide true cross-platform parity without installing bulky frameworks, SpectraBench implements architecture-specific optimizations using OS-level compiled libraries:
+1. **CPU Score (Cryptographic ALU):** Spawns parallel background jobs enforcing a brutal **5GB SHA-256 Crypto calculation per thread**. The score mathematically scales based on core count and elapsed execution time.
+2. **Thermal Throttling Probe:** Taps into Kernel WMI (Windows) and ACPI thermal zones (Linux) to record temperature spikes during the sustained test, flagging severe heat-soak states.
+3. **RAM Score:** Allocates 2GB of data directly into volatile memory. On standard OS, it utilizes `/dev/shm` and `MemoryStream`. On Android/Termux, it automatically falls back to a pure zero-to-null Kernel Memory pipe buffer to test raw memory bus speed securely.
+4. **Disk Score:** Forces a massive sequential write of 5GB to exhaust caching layers (`fdatasync` and `WriteThrough`).
+5. **Network Score:** Evaluates Cloudflare DNS ping latency and forcefully downloads a 100MB CDN payload to memory.
 
-1. **CPU Score (Parallel Cryptographic ALU):** The script auto-detects your system's logical cores/threads. It then spawns parallel background jobs (in Linux via `wait` fork, in Windows via Embedded C# `Parallel.For`), unleashing an aggressive 50MB SHA-256 Crypto calculation per thread simultaneously. The score scales dynamically based on core count and completion time.
-2. **Thermal Throttling Probe:** Taps into Kernel WMI (Windows) and ACPI thermal zones (Linux) to record temperature spikes during the Multi-Core stress test. Flags red if it exceeds 85°C.
-3. **RAM Score:** Streams a massive 500MB byte block directly into volatile memory (`/dev/shm` in Linux, `MemoryStream` in .NET), testing pure RAM bandwidth limits.
-4. **Disk Score:** Forces a sequential write of 500MB to the primary storage drive. It strictly uses `fdatasync` (Linux) and `FileOptions.WriteThrough` (Windows) to aggressively bypass OS caching mechanisms, measuring true hardware write speed.
+---
+
+## 🗺️ Strategic Roadmap
+
+SpectraBench is continuously evolving to push the boundaries of script-based system telemetry, focusing on deeper accuracy, broader metrics, and extreme edge portability.
+
+| Phase | Focus Area | Planned / Completed Upgrades |
+| --- | --- | --- |
+| **Phase 1** | **The Foundation** | ✅ Zero-dependency core logic (CPU, RAM, Disk).<br>
+
+<br>✅ Multi-threaded parallel execution.<br>
+
+<br>✅ Omni-Platform Environment AI (Termux/Mobile support). |
+| **Phase 2** | **Hyper-Precision** | ⏳ **L1/L2/L3 Cache Profiling:** Shifting from pure RAM bandwidth to measuring nanosecond latency in CPU caches.<br>
+
+<br>⏳ **Thermal Curve Analytics:** Logging temperature *over time* rather than just start/end points to detect micro-throttling.<br>
+
+<br>⏳ **JSON Telemetry Export:** Allowing SysAdmins to pipe benchmark results directly into log servers (Datadog/Grafana). |
+| **Phase 3** | **Extreme Edge** | ⏳ **IoT / Router Support:** Optimizing the Bash engine to run natively on OpenWrt routers and embedded Raspberry Pi controllers.<br>
+
+<br>⏳ **Power Efficiency Metrics:** Correlating CPU scores with real-time battery drain (Watts) on mobile devices to score hardware efficiency.<br>
+
+<br>⏳ **GPU Compute Fallback:** Exploring native OS APIs to stress-test integrated graphics alongside the CPU. |
 
 ---
 
@@ -108,22 +131,12 @@ In order to provide true cross-platform parity without installing bulky framewor
 
 **Why does SpectraBench require `sudo` (Linux) or `Administrator` (Windows)?**
 
-* **Thermal Readings:** Fetching low-level hardware ACPI zones requires kernel/WMI administrative privileges.
-* **Disk Benchmarking:** Bypassing the OS cache requires low-level kernel I/O access and WriteThrough flags.
-* **RAM Benchmarking (Linux):** Writing massive chunks directly to `/dev/shm` requires elevated privileges.
-* **Trace Destruction:** The script automatically deletes its own temporary 500MB payload files upon completion to keep your system clean.
+* **Thermal Readings:** Fetching low-level hardware ACPI/WMI zones requires administrative kernel privileges.
+* **Disk Benchmarking:** Bypassing the OS cache to write raw data requires low-level I/O access and WriteThrough flags.
+* **RAM Allocation (Linux):** Writing massive chunks directly to `/dev/shm` bypasses user-space limitations.
+* **Ephemeral Design:** The script requires permission to automatically delete its own temporary multi-gigabyte payload files upon completion to keep your system meticulously clean.
 
-*We encourage you to read the source code. It's 100% transparent, single-file, and contains zero telemetry.*
-
----
-
-## 🗺️ Project Roadmap
-
-* [x] **v1.0 (Core):** CPU Crypto Hashing, RAM, and Storage tests with cache-bypass architecture.
-* [x] **v2.0 (Multi-Threading):** Implemented parallel background jobs to stress-test Multi-Core CPUs, plus thermal throttling detection.
-* [ ] **v3.0 (Network Edge):** Global DNS latency checks and upload/download bandwidth testing.
-* [ ] **v4.0 (Interactive Suite):** Modular testing menu and JSON export capabilities.
-* [ ] **v5.0 (Leaderboard):** Webhook integration to push scores to Discord or Google Sheets.
+*We encourage you to read the source code. It is 100% transparent, contained in single architecture-specific files, and possesses zero hidden telemetry.*
 
 ---
 
