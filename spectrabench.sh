@@ -156,7 +156,7 @@ function test_disk() {
 }
 
 function test_network() {
-    echo -e "${YELLOW}[*] Network Edge Ping & 100MB CDN Payload Download...${RESET}"
+    echo -e "${YELLOW}[*] Network Edge Ping & 100MB Enterprise CDN Download...${RESET}"
     
     # 1. Ping Check
     ping_out=$(ping -c 3 1.1.1.1 2>/dev/null)
@@ -167,17 +167,31 @@ function test_network() {
         latency=999
     fi
 
-    # 2. Timeout Guard & Double Fallback (Cloudflare -> Tele2)
-    dl_bps=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 15 -w "%{speed_download}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=100000000" 2>/dev/null)
-    
-    if [[ -z "$dl_bps" || "$dl_bps" == "0.000" || "$dl_bps" == "0" ]]; then
-        dl_bps=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 15 -w "%{speed_download}" -o /dev/null "http://speedtest.tele2.net/100MB.zip" 2>/dev/null)
+    # 2. HTTP Status Validation (Anti-Error Page Trap)
+    URL1="https://proof.ovh.net/files/100Mb.dat"
+    URL2="https://speed.hetzner.de/100MB.bin"
+
+    # Fetching HTTP Code and Speed simultaneously
+    response=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 15 -w "%{http_code}:%{speed_download}" -o /dev/null "$URL1" 2>/dev/null)
+    http_code=$(echo "$response" | cut -d: -f1)
+    dl_bps=$(echo "$response" | cut -d: -f2)
+
+    # If status is not 200 OK, it's a fake download (blocked/error). Trigger fallback!
+    if [[ "$http_code" != "200" || -z "$dl_bps" || "$dl_bps" == "0.000" ]]; then
+        response=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 15 -w "%{http_code}:%{speed_download}" -o /dev/null "$URL2" 2>/dev/null)
+        http_code=$(echo "$response" | cut -d: -f1)
+        dl_bps=$(echo "$response" | cut -d: -f2)
     fi
     
-    # 3. Null-Safety Fallback
+    # Absolute zero safeguard
+    if [[ "$http_code" != "200" || -z "$dl_bps" ]]; then
+        dl_bps=0
+    fi
+
+    # 3. Clean string & calculate
+    dl_bps=$(echo "$dl_bps" | sed 's/[^0-9.]//g')
     [ -z "$dl_bps" ] && dl_bps=0
 
-    # 4. Absolute AWK Locale & Variable Safety (Bypassing syntax errors completely)
     dl_mbps=$(LC_ALL=C awk -v bps="$dl_bps" 'BEGIN { printf "%.2f", bps / 1048576 }')
     
     if [ $(LC_ALL=C awk -v lat="$latency" 'BEGIN {print (lat >= 999)}') -eq 1 ]; then 
