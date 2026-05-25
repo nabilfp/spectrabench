@@ -157,22 +157,38 @@ function test_disk() {
 
 function test_network() {
     echo -e "${YELLOW}[*] Network Edge Ping & 100MB CDN Payload Download...${RESET}"
+    
+    # 1. Ping Check
     ping_out=$(ping -c 3 1.1.1.1 2>/dev/null)
     if [ $? -eq 0 ]; then
-        latency=$(echo "$ping_out" | tail -1 | awk -F '/' '{print $5}')
+        latency=$(echo "$ping_out" | awk -F '/' 'END {print $5}')
         [ -z "$latency" ] && latency=999
-    else latency=999; fi
+    else 
+        latency=999
+    fi
 
-    # FIX: Menggunakan CacheFly CDN (Anti-Block) & LC_ALL=C (Mencegah Bug Koma pada Desimal)
-    dl_bps=$(LC_ALL=C curl -sL -w "%{speed_download}" -o /dev/null "https://cachefly.cachefly.net/100mb.test" 2>/dev/null)
+    # 2. Timeout Guard & Double Fallback (Cloudflare -> Tele2)
+    dl_bps=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 15 -w "%{speed_download}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=100000000" 2>/dev/null)
+    
+    if [[ -z "$dl_bps" || "$dl_bps" == "0.000" || "$dl_bps" == "0" ]]; then
+        dl_bps=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 15 -w "%{speed_download}" -o /dev/null "http://speedtest.tele2.net/100MB.zip" 2>/dev/null)
+    fi
+    
+    # 3. Null-Safety Fallback
     [ -z "$dl_bps" ] && dl_bps=0
+
+    # 4. Absolute AWK Locale & Variable Safety (Bypassing syntax errors completely)
+    dl_mbps=$(LC_ALL=C awk -v bps="$dl_bps" 'BEGIN { printf "%.2f", bps / 1048576 }')
     
-    dl_mbps=$(awk "BEGIN {printf \"%.2f\", $dl_bps / 1024 / 1024}")
+    if [ $(LC_ALL=C awk -v lat="$latency" 'BEGIN {print (lat >= 999)}') -eq 1 ]; then 
+        lat_score=0
+        latency_str="Offline/Timeout"
+    else 
+        lat_score=$(LC_ALL=C awk -v lat="$latency" 'BEGIN {printf "%d", 2000 / lat}')
+        latency_str="${latency} ms"
+    fi
     
-    if [ $(awk "BEGIN {print ($latency >= 999)}") -eq 1 ]; then lat_score=0; latency_str="Offline/Timeout"
-    else lat_score=$(awk "BEGIN {printf \"%d\", 2000 / $latency}"); latency_str="${latency} ms"; fi
-    
-    bw_score=$(awk "BEGIN {printf \"%d\", $dl_mbps * 15}")
+    bw_score=$(LC_ALL=C awk -v mbps="$dl_mbps" 'BEGIN {printf "%d", mbps * 15}')
     SCORE_NET=$((lat_score + bw_score))
     
     echo -e "  ${CYAN}DNS Latency :${RESET} $latency_str | ${CYAN}Bandwidth :${RESET} $dl_mbps MB/s"
