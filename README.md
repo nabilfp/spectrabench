@@ -102,29 +102,15 @@ iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectraben
 5. **Network Score:** Evaluates Cloudflare DNS ping latency and forcefully downloads a 100MB CDN payload to memory.
 
 ---
-
 ## 🗺️ Strategic Roadmap
 
 SpectraBench is continuously evolving to push the boundaries of script-based system telemetry, focusing on deeper accuracy, broader metrics, and extreme edge portability.
 
 | Phase | Focus Area | Planned / Completed Upgrades |
-| --- | --- | --- |
-| **Phase 1** | **The Foundation** | ✅ Zero-dependency core logic (CPU, RAM, Disk).<br>
-
-<br>✅ Multi-threaded parallel execution.<br>
-
-<br>✅ Omni-Platform Environment AI (Termux/Mobile support). |
-| **Phase 2** | **Hyper-Precision** | ⏳ **L1/L2/L3 Cache Profiling:** Shifting from pure RAM bandwidth to measuring nanosecond latency in CPU caches.<br>
-
-<br>⏳ **Thermal Curve Analytics:** Logging temperature *over time* rather than just start/end points to detect micro-throttling.<br>
-
-<br>⏳ **JSON Telemetry Export:** Allowing SysAdmins to pipe benchmark results directly into log servers (Datadog/Grafana). |
-| **Phase 3** | **Extreme Edge** | ⏳ **IoT / Router Support:** Optimizing the Bash engine to run natively on OpenWrt routers and embedded Raspberry Pi controllers.<br>
-
-<br>⏳ **Power Efficiency Metrics:** Correlating CPU scores with real-time battery drain (Watts) on mobile devices to score hardware efficiency.<br>
-
-<br>⏳ **GPU Compute Fallback:** Exploring native OS APIs to stress-test integrated graphics alongside the CPU. |
-
+| :--- | :--- | :--- |
+| **Phase 1** | **The Foundation** | <ul><li>✅ Zero-dependency core logic (CPU, RAM, Disk).</li><li>✅ Multi-threaded parallel execution.</li><li>✅ Omni-Platform Environment AI (Termux/Mobile support).</li></ul> |
+| **Phase 2** | **Hyper-Precision** | <ul><li>⏳ **L1/L2/L3 Cache Profiling:** Shifting from pure RAM bandwidth to measuring nanosecond latency in CPU caches.</li><li>⏳ **Thermal Curve Analytics:** Logging temperature *over time* rather than just start/end points to detect micro-throttling.</li><li>⏳ **JSON Telemetry Export:** Allowing SysAdmins to pipe benchmark results directly into log servers (Datadog/Grafana).</li></ul> |
+| **Phase 3** | **Extreme Edge** | <ul><li>⏳ **IoT / Router Support:** Optimizing the Bash engine to run natively on OpenWrt routers and embedded Raspberry Pi controllers.</li><li>⏳ **Power Efficiency Metrics:** Correlating CPU scores with real-time battery drain (Watts) on mobile devices to score hardware efficiency.</li><li>⏳ **GPU Compute Fallback:** Exploring native OS APIs to stress-test integrated graphics alongside the CPU.</li></ul> |
 ---
 
 ## 🛡️ Security & Transparency
