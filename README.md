@@ -127,18 +127,6 @@ Open **PowerShell as Administrator** and run:
 iex (irm "https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.ps1")
 ```
 
-### 📋 Offline / Air-Gapped Mode
-
-If the target machine has no internet, simply `scp` or `curl -O` the single script file and execute locally:
-
-```bash
-chmod +x spectrabench.sh && sudo ./spectrabench.sh
-```
-
-```powershell
-.\spectrabench.ps1
-```
-
 ---
 
 ## 🛠️ How It Works (The Metrics)
