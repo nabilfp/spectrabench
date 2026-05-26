@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Project      : SpectraBench (v5.0-OmniPlatform Singularity)
+Project      : SpectraBench (v5.1-OmniPlatform Singularity)
 Description  : Zero-Dependency Ultimate System Benchmark
 Author       : Nabil
 Architecture : PowerShell + Embedded C#, Sustained Singularity Stress
@@ -13,22 +13,23 @@ if (-not $isAdmin) {
     Exit
 }
 
-$Host.UI.RawUI.WindowTitle = "SpectraBench v5.0 (Windows Edition)"
+$Host.UI.RawUI.WindowTitle = "SpectraBench v5.1 (Windows Edition)"
 
 # --- [ THE ENGINE: SUSTAINED SINGULARITY INJECTION ] ---
 $csharpCode = @"
 using System;
-using System.IO;
-using System.Threading.Tasks;
-using System.Security.Cryptography;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Threading.Tasks;
 
 public class SpectraDeepCore {
-    public static double RunCpu(int cores) {
+    public static double RunCpu(int cores, int mbPerThread) {
         Stopwatch sw = Stopwatch.StartNew();
+        int bytes = mbPerThread * 1024 * 1024;
         Parallel.For(0, cores, i => {
-            // Allocate 100MB array and loop it 50 times to securely hash 5GB per thread 
-            byte[] data = new byte[100 * 1024 * 1024]; 
+            byte[] data = new byte[bytes];
+            new Random(i).NextBytes(data);
             using (SHA256 sha = SHA256.Create()) {
                 for(int j=0; j<50; j++) { sha.ComputeHash(data); }
             }
@@ -37,25 +38,71 @@ public class SpectraDeepCore {
         return sw.Elapsed.TotalSeconds == 0 ? 0.001 : sw.Elapsed.TotalSeconds;
     }
 
-    public static double RunRam() {
+    public static double RunRam(int chunkCount, int chunkSizeMB) {
         Stopwatch sw = Stopwatch.StartNew();
-        using (MemoryStream ms = new MemoryStream()) {
-            byte[] buf = new byte[64 * 1024]; // 64KB Blocks
-            for (int i = 0; i < 32768; i++) { // 2GB Total allocation latency test
-                ms.Write(buf, 0, buf.Length);
+        int chunkSize = chunkSizeMB * 1024 * 1024;
+        List<byte[]> chunks = new List<byte[]>(chunkCount);
+        Random rng = new Random(42);
+        for (int i = 0; i < chunkCount; i++) {
+            byte[] chunk = new byte[chunkSize];
+            rng.NextBytes(chunk);
+            chunks.Add(chunk);
+        }
+        // Touch every page to force real allocation
+        long checksum = 0;
+        foreach (var chunk in chunks) {
+            for (int i = 0; i < chunk.Length; i += 4096) {
+                checksum += chunk[i];
             }
         }
         sw.Stop();
+        chunks.Clear();
+        GC.Collect();
         return sw.Elapsed.TotalSeconds == 0 ? 0.001 : sw.Elapsed.TotalSeconds;
     }
 }
 "@
-if (-not ("SpectraDeepCore" -as [type])) {
-    Add-Type -TypeDefinition $csharpCode -Language CSharp
+
+try {
+    if (-not ("SpectraDeepCore" -as [type])) {
+        Add-Type -TypeDefinition $csharpCode -Language CSharp
+    }
+} catch {
+    Write-Host "[!] Failed to compile benchmark engine. Error: $_" -ForegroundColor Red
+    Exit
 }
 
 # --- [ GLOBAL VARIABLES ] ---
-$script:cores = (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
+$procInfo = Get-CimInstance Win32_Processor
+$script:cores = ($procInfo | Measure-Object NumberOfLogicalProcessors -Sum).Sum
+if ($script:cores -eq 0) { $script:cores = 1 }
+
+$sysInfo = Get-CimInstance Win32_ComputerSystem
+$totalRamBytes = $sysInfo.TotalPhysicalMemory
+$totalRamGB = [math]::Round($totalRamBytes / 1GB, 2)
+
+# Auto-scale test sizes for low-memory systems
+$availableRamMB = [math]::Floor($totalRamBytes / 1MB)
+$minOsReserveMB = 2048
+
+# CPU: target 5GB/thread, but scale down if needed
+$script:cpuMBperThread = 5000
+$maxCpuTotalMB = [math]::Max(512, $availableRamMB - $minOsReserveMB)
+$safeCpuMBperThread = [math]::Floor($maxCpuTotalMB / $script:cores)
+if ($safeCpuMBperThread -lt 500) { $safeCpuMBperThread = 500 }
+if ($safeCpuMBperThread -lt 5000) {
+    $script:cpuMBperThread = $safeCpuMBperThread
+}
+
+# RAM: target 2GB (8x256MB), but scale down if needed
+$script:ramChunkSizeMB = 256
+$script:ramChunkCount = 8
+$maxRamTestMB = [math]::Floor(($availableRamMB - $minOsReserveMB) / 2)
+if ($maxRamTestMB -lt 512) {
+    $script:ramChunkCount = [math]::Max(2, [math]::Floor($maxRamTestMB / $script:ramChunkSizeMB))
+    if ($script:ramChunkCount -lt 2) { $script:ramChunkCount = 2 }
+}
+
 $script:scoreCpu = 0; $script:scoreRam = 0; $script:scoreDisk = 0; $script:scoreNet = 0
 
 # --- [ UI FUNCTIONS ] ---
@@ -67,20 +114,17 @@ function Draw-Banner {
     Write-Host "  ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  " -ForegroundColor Magenta
     Write-Host "▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ " -ForegroundColor Magenta
     Write-Host "░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ " -ForegroundColor Magenta
-    Write-Host "    v5.0 Omni-Platform Singularity Suite | Windows Edition       " -ForegroundColor Cyan
+    Write-Host "    v5.1 Omni-Platform Singularity Suite | Windows Edition       " -ForegroundColor Cyan
     Write-Host "=================================================================" -ForegroundColor Cyan
     Write-Host ""
 }
 
 function Get-SysInfo {
     $os = (Get-CimInstance Win32_OperatingSystem).Caption
-    $cpu = (Get-CimInstance Win32_Processor).Name
-    $ramRaw = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
-    $ram = [math]::Round($ramRaw / 1GB, 2)
-
+    $cpu = ($procInfo | Select-Object -First 1).Name
     Write-Host "  OS       : $os" -ForegroundColor Cyan
     Write-Host "  CPU      : $cpu ($script:cores Threads)" -ForegroundColor Cyan
-    Write-Host "  RAM      : $ram GB`n" -ForegroundColor Cyan
+    Write-Host "  RAM      : $totalRamGB GB`n" -ForegroundColor Cyan
 }
 
 function Get-Temp {
@@ -93,102 +137,146 @@ function Get-Temp {
 
 function Pause-Continue {
     Write-Host "`nPress [ENTER] to return to the menu..." -ForegroundColor Cyan
-    Read-Host
+    $null = Read-Host
 }
 
 # --- [ TEST MODULES ] ---
 
 function Test-Cpu {
-    Write-Host "[*] Singularity CPU Stress (5000MB SHA-256 per Thread x $($script:cores) Threads)..." -ForegroundColor Yellow
+    $totalWorkMB = $script:cpuMBperThread * $script:cores
+    Write-Host "[*] Singularity CPU Stress (${script:cpuMBperThread}MB SHA-256 per Thread x $($script:cores) Threads = ${totalWorkMB}MB Total)..." -ForegroundColor Yellow
     $tempStart = Get-Temp
-    
-    $elapsed = [SpectraDeepCore]::RunCpu($script:cores)
-    $tempEnd = Get-Temp
-    if ($elapsed -eq 0) { $elapsed = 0.001 }
-    $elapsedRound = [math]::Round($elapsed, 4)
-    
-    $script:scoreCpu = [math]::Floor((5000 * $script:cores) / $elapsed)
-    Write-Host "  [V] Elapsed: $($elapsedRound)s -> CPU Score: $script:scoreCpu" -ForegroundColor Green
-    
-    if ($tempStart -ne "N/A" -and $tempEnd -ne "N/A") {
-        if ($tempEnd -ge 85) { Write-Host "  [!] THERMAL THROTTLING DETECTED (Max: ${tempEnd}°C)" -ForegroundColor Red }
-        else { Write-Host "  [ Thermals: ${tempStart}°C -> ${tempEnd}°C ]" -ForegroundColor Cyan }
+    try {
+        $elapsed = [SpectraDeepCore]::RunCpu($script:cores, $script:cpuMBperThread)
+        if ($elapsed -eq 0) { $elapsed = 0.001 }
+        $elapsedRound = [math]::Round($elapsed, 4)
+        $script:scoreCpu = [math]::Floor(($script:cpuMBperThread * $script:cores) / $elapsed)
+        Write-Host "  [V] Elapsed: $($elapsedRound)s -> CPU Score: $script:scoreCpu" -ForegroundColor Green
+        $tempEnd = Get-Temp
+        if ($tempStart -ne "N/A" -and $tempEnd -ne "N/A") {
+            if ($tempEnd -ge 85) { Write-Host "  [!] THERMAL THROTTLING DETECTED (Max: ${tempEnd}°C)" -ForegroundColor Red }
+            else { Write-Host "  [ Thermals: ${tempStart}°C -> ${tempEnd}°C ]" -ForegroundColor Cyan }
+        }
+    } catch {
+        Write-Host "  [!] CPU Test Failed: $_" -ForegroundColor Red
+        $script:scoreCpu = 0
     }
 }
 
 function Test-Ram {
-    Write-Host "[*] Deep Memory Bandwidth (2GB Random Allocations Native)..." -ForegroundColor Yellow
-    $elapsed = [SpectraDeepCore]::RunRam()
-    if ($elapsed -eq 0) { $elapsed = 0.001 }
-    $speedMBps = [math]::Round((2048 / $elapsed), 2)
-    
-    if ($speedMBps -ge 1024) { $speedStr = "$([math]::Round($speedMBps / 1024, 2)) GB/s" }
-    else { $speedStr = "$speedMBps MB/s" }
-    
-    $script:scoreRam = [math]::Floor($speedMBps * 3)
-    Write-Host "  [V] Memory Speed: $speedStr -> RAM Score: $script:scoreRam" -ForegroundColor Green
+    $testMB = $script:ramChunkSizeMB * $script:ramChunkCount
+    Write-Host "[*] Deep Memory Bandwidth (${testMB}MB Chunked Allocations)..." -ForegroundColor Yellow
+    try {
+        $elapsed = [SpectraDeepCore]::RunRam($script:ramChunkCount, $script:ramChunkSizeMB)
+        if ($elapsed -eq 0) { $elapsed = 0.001 }
+        $speedMBps = [math]::Round(($testMB / $elapsed), 2)
+        if ($speedMBps -ge 1024) { $speedStr = "$([math]::Round($speedMBps / 1024, 2)) GB/s" }
+        else { $speedStr = "$speedMBps MB/s" }
+        $script:scoreRam = [math]::Floor($speedMBps * 3)
+        Write-Host "  [V] Memory Speed: $speedStr -> RAM Score: $script:scoreRam" -ForegroundColor Green
+    } catch {
+        Write-Host "  [!] RAM Test Failed: $_" -ForegroundColor Red
+        $script:scoreRam = 0
+    }
 }
 
 function Test-Disk {
-    Write-Host "[*] Deep Storage Test (5GB Sustained WriteThrough to Exhaust SLC)..." -ForegroundColor Yellow
     $testFile = "$env:TEMP\.spectra_disk_test.tmp"
-    $time = Measure-Command {
-        $fs = New-Object System.IO.FileStream($testFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None, 1MB, [System.IO.FileOptions]::WriteThrough)
-        $buffer = New-Object byte[] 1MB
-        for ($i = 0; $i -lt 5120; $i++) { $fs.Write($buffer, 0, $buffer.Length) } # 5GB
-        $fs.Close()
+    $drive = (Get-Item $env:TEMP).PSDrive
+    $freeMB = [math]::Floor($drive.Free / 1MB)
+
+    $targetMB = 5120
+    if ($freeMB -lt 6144) {
+        $targetMB = [math]::Max(256, $freeMB - 512)
+        Write-Host "[*] Deep Storage Test (Low disk space: Using ${targetMB}MB WriteThrough)..." -ForegroundColor Yellow
+    } else {
+        Write-Host "[*] Deep Storage Test (${targetMB}MB Sustained WriteThrough to Exhaust SLC)..." -ForegroundColor Yellow
     }
-    Remove-Item $testFile -Force
+
+    if ($targetMB -lt 100) {
+        Write-Host "  [!] Insufficient disk space. Skipping disk test." -ForegroundColor Red
+        $script:scoreDisk = 0
+        return
+    }
+
+    $fs = $null
+    try {
+        $buffer = New-Object byte[] (1MB)
+        $time = Measure-Command {
+            $fs = New-Object System.IO.FileStream($testFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None, 1MB, [System.IO.FileOptions]::WriteThrough)
+            for ($i = 0; $i -lt $targetMB; $i++) { $fs.Write($buffer, 0, $buffer.Length) }
+        }
+    } catch {
+        Write-Host "  [!] Disk Test Failed: $_" -ForegroundColor Red
+        $script:scoreDisk = 0
+        return
+    } finally {
+        if ($fs) { $fs.Close(); $fs.Dispose() }
+        Remove-Item $testFile -Force -ErrorAction SilentlyContinue
+    }
+
     $elapsed = $time.TotalSeconds
     if ($elapsed -eq 0) { $elapsed = 0.001 }
-    $speedMBps = [math]::Round((5120 / $elapsed), 2)
-    
+    $speedMBps = [math]::Round(($targetMB / $elapsed), 2)
     if ($speedMBps -ge 1024) { $speedStr = "$([math]::Round($speedMBps / 1024, 2)) GB/s" }
     else { $speedStr = "$speedMBps MB/s" }
-    
     $script:scoreDisk = [math]::Floor($speedMBps * 8)
     Write-Host "  [V] Disk Speed: $speedStr -> Disk Score: $script:scoreDisk" -ForegroundColor Green
 }
 
 function Test-Network {
     Write-Host "[*] Network Edge Ping & 100MB Enterprise CDN Download..." -ForegroundColor Yellow
-    $ping = Get-WmiObject Win32_PingStatus -Filter "Address='1.1.1.1'" | Select-Object -First 1
-    if ($ping -and $ping.StatusCode -eq 0) {
-        $latency = $ping.ResponseTime
-        if ($latency -eq 0) { $latency = 1 }
-        $latScore = [math]::Floor(2000 / $latency)
-        $latStr = "$latency ms"
-    } else {
-        $latScore = 0; $latStr = "Offline/Timeout"
-    }
 
-    $url1 = "https://proof.ovh.net/files/100Mb.dat"
-    $url2 = "https://speed.hetzner.de/100MB.bin"
-    $tmpFile = "$env:TEMP\.spectra_dl_test.tmp"
-    
-    $elapsed = 0
+    $latency = 999
+    $latStr = "Offline/Timeout"
+    $latScore = 0
     try {
-        $wc = New-Object System.Net.WebClient
-        $time = Measure-Command { $wc.DownloadFile($url1, $tmpFile) }
-        $wc.Dispose(); Remove-Item $tmpFile -Force
-        $elapsed = $time.TotalSeconds
+        $pingResult = Test-Connection -ComputerName 1.1.1.1 -Count 3 -ErrorAction Stop
+        $latency = [math]::Round(($pingResult | Measure-Object ResponseTime -Average).Average, 0)
     } catch {
         try {
-            $wc = New-Object System.Net.WebClient
-            $time = Measure-Command { $wc.DownloadFile($url2, $tmpFile) }
-            $wc.Dispose(); Remove-Item $tmpFile -Force
+            $pingStatus = Get-WmiObject Win32_PingStatus -Filter "Address='1.1.1.1' AND Timeout=3000" | Select-Object -First 1
+            if ($pingStatus -and $pingStatus.StatusCode -eq 0) { $latency = $pingStatus.ResponseTime }
+        } catch { }
+    }
+    if ($latency -eq 0) { $latency = 1 }
+    if ($latency -lt 999) {
+        $latScore = [math]::Floor(2000 / $latency)
+        $latStr = "$latency ms"
+    }
+
+    $urls = @(
+        "https://speedtest.tele2.net/100MB.zip",
+        "https://proof.ovh.net/files/100Mb.dat",
+        "https://speed.hetzner.de/100MB.bin"
+    )
+
+    $dlMbps = 0
+    $bwScore = 0
+    $success = $false
+
+    foreach ($url in $urls) {
+        $tmpFile = [System.IO.Path]::GetTempFileName()
+        try {
+            $time = Measure-Command {
+                Invoke-WebRequest -Uri $url -OutFile $tmpFile -MaximumRedirection 5 -TimeoutSec 30 -ErrorAction Stop
+            }
+            Remove-Item $tmpFile -Force
             $elapsed = $time.TotalSeconds
+            if ($elapsed -gt 0) {
+                $dlMbps = [math]::Round((100 / $elapsed), 2)
+                $bwScore = [math]::Floor($dlMbps * 15)
+                $success = $true
+                break
+            }
         } catch {
-            $elapsed = 0
+            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+            continue
         }
     }
-    
-    if ($elapsed -gt 0) {
-        $dlMbps = [math]::Round((100 / $elapsed), 2)
-        $bwScore = [math]::Floor($dlMbps * 15)
-    } else {
-        $dlMbps = 0
-        $bwScore = 0
+
+    if (-not $success) {
+        Write-Host "  [!] All CDN endpoints failed. Check internet connection." -ForegroundColor Yellow
     }
 
     $script:scoreNet = $latScore + $bwScore
@@ -201,7 +289,7 @@ function Run-All {
     Test-Ram; Write-Host ""
     Test-Disk; Write-Host ""
     Test-Network; Write-Host ""
-    
+
     $total = $script:scoreCpu + $script:scoreRam + $script:scoreDisk + $script:scoreNet
     Write-Host "=================================================================" -ForegroundColor Magenta
     Write-Host "                     🏆 FINAL SPECTRA SCORE 🏆                   " -ForegroundColor White
@@ -219,24 +307,29 @@ function Run-All {
 do {
     Draw-Banner
     Get-SysInfo
-    
+
     Write-Host "Select an operation to perform:" -ForegroundColor White
     Write-Host "  1. 🚀 Run Full Singularity Benchmark Suite" -ForegroundColor Green
-    Write-Host "  2. 🧠 Test CPU (5GB Singularity Multi-Core Load)" -ForegroundColor Cyan
-    Write-Host "  3. ⚡ Test RAM (Allocation Latency & Bandwidth)" -ForegroundColor Cyan
+    Write-Host "  2. 🧠 Test CPU (${script:cpuMBperThread}MB Singularity Multi-Core Load)" -ForegroundColor Cyan
+    Write-Host "  3. ⚡ Test RAM ($($script:ramChunkSizeMB * $script:ramChunkCount)MB Allocation Latency & Bandwidth)" -ForegroundColor Cyan
     Write-Host "  4. 💾 Test Storage (5GB SLC Cache Exhaustion)" -ForegroundColor Cyan
     Write-Host "  5. 🌐 Test Network (Global Edge & 100MB CDN)" -ForegroundColor Cyan
     Write-Host "  0. ❌ Exit" -ForegroundColor Red
     Write-Host "-----------------------------------------------------------------" -ForegroundColor Cyan
     $choice = Read-Host "Enter your choice [0-5]"
-    
-    switch ($choice) {
+
+    if ([string]::IsNullOrWhiteSpace($choice)) { continue }
+
+    switch ($choice.Trim()) {
         "1" { Write-Host ""; Run-All; Pause-Continue }
         "2" { Write-Host ""; Test-Cpu; Pause-Continue }
         "3" { Write-Host ""; Test-Ram; Pause-Continue }
         "4" { Write-Host ""; Test-Disk; Pause-Continue }
         "5" { Write-Host ""; Test-Network; Pause-Continue }
         "0" { Write-Host "`nThank you for using SpectraBench!" -ForegroundColor Green }
-        default { Write-Host "`n[!] Invalid selection." -ForegroundColor Red; Start-Sleep -Seconds 1 }
+        default { 
+            Write-Host "`n[!] Invalid selection. Please choose 0-5." -ForegroundColor Red
+            Start-Sleep -Seconds 1
+        }
     }
-} while ($choice -ne "0")
+} while ($choice.Trim() -ne "0")
