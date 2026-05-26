@@ -48,7 +48,6 @@ public class SpectraDeepCore {
             rng.NextBytes(chunk);
             chunks.Add(chunk);
         }
-        // Touch every page to force real allocation
         long checksum = 0;
         foreach (var chunk in chunks) {
             for (int i = 0; i < chunk.Length; i += 4096) {
@@ -81,11 +80,9 @@ $sysInfo = Get-CimInstance Win32_ComputerSystem
 $totalRamBytes = $sysInfo.TotalPhysicalMemory
 $totalRamGB = [math]::Round($totalRamBytes / 1GB, 2)
 
-# Auto-scale test sizes for low-memory systems
 $availableRamMB = [math]::Floor($totalRamBytes / 1MB)
 $minOsReserveMB = 2048
 
-# CPU: target 5GB/thread, but scale down if needed
 $script:cpuMBperThread = 5000
 $maxCpuTotalMB = [math]::Max(512, $availableRamMB - $minOsReserveMB)
 $safeCpuMBperThread = [math]::Floor($maxCpuTotalMB / $script:cores)
@@ -94,7 +91,6 @@ if ($safeCpuMBperThread -lt 5000) {
     $script:cpuMBperThread = $safeCpuMBperThread
 }
 
-# RAM: target 2GB (8x256MB), but scale down if needed
 $script:ramChunkSizeMB = 256
 $script:ramChunkCount = 8
 $maxRamTestMB = [math]::Floor(($availableRamMB - $minOsReserveMB) / 2)
