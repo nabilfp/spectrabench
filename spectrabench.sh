@@ -53,7 +53,7 @@ get_time() {
     fi
 }
 
-# --- [ DEPENDENCY & FEATURE DETECTION ] ---
+# --- [ DEPENDENCY DETECTION ] ---
 MISSING_DEPS=()
 for cmd in dd awk ping curl; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -76,17 +76,6 @@ elif command -v openssl >/dev/null 2>&1; then
     HASHER="openssl dgst -sha256"
 fi
 
-# dd feature detection
-DD_STATUS=""
-if dd if=/dev/zero of=/dev/null bs=1k count=1 status=none 2>/dev/null; then
-    DD_STATUS="status=none"
-fi
-
-DD_CONV=""
-if dd if=/dev/zero of=/dev/null bs=1k count=1 conv=fdatasync 2>/dev/null; then
-    DD_CONV="conv=fdatasync"
-fi
-
 # --- [ TRAP: GRACEFUL EXIT ] ---
 trap 'echo -e "\n\n${RED}[!] Benchmark aborted. Cleaning up...${RESET}"; rm -f /dev/shm/.spectra_* "$TMP_DIR"/.spectra_*; exit 1' SIGINT SIGTERM
 
@@ -104,50 +93,53 @@ fi
 
 SCORE_CPU=0; SCORE_RAM=0; SCORE_DISK=0; SCORE_NET=0
 
-# Determine safe test sizes based on available RAM
+# --- [ AUTO-SCALE TEST SIZES ] ---
 TOTAL_RAM_KB=0
 if [[ $IS_TERMUX -eq 0 ]] && command -v free >/dev/null 2>&1; then
     TOTAL_RAM_KB=$(free | awk '/^Mem:/ {print $2}')
 fi
 TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
 
-# CPU: 5GB per thread default, scale down on low memory
+# CPU: 5GB per thread default, scale down ONLY if truly necessary
 CPU_MB_PER_THREAD=5000
 if [[ $TOTAL_RAM_MB -gt 0 ]]; then
-    SAFE_TOTAL_MB=$((TOTAL_RAM_MB - 1024))
-    [[ $SAFE_TOTAL_MB -lt 256 ]] && SAFE_TOTAL_MB=256
-    SAFE_PER_THREAD=$((SAFE_TOTAL_MB / CPU_CORES))
-    [[ $SAFE_PER_THREAD -lt 100 ]] && SAFE_PER_THREAD=100
-    if [[ $SAFE_PER_THREAD -lt $CPU_MB_PER_THREAD ]]; then
+    # Need: CPU_MB_PER_THREAD * CPU_CORES + OS reserve (2GB)
+    NEEDED_MB=$((CPU_MB_PER_THREAD * CPU_CORES + 2048))
+    if [[ $NEEDED_MB -gt $TOTAL_RAM_MB ]]; then
+        # Scale proportionally, minimum 500MB per thread
+        SAFE_PER_THREAD=$(((TOTAL_RAM_MB - 2048) / CPU_CORES))
+        [[ $SAFE_PER_THREAD -lt 500 ]] && SAFE_PER_THREAD=500
+        [[ $SAFE_PER_THREAD -gt 5000 ]] && SAFE_PER_THREAD=5000
         CPU_MB_PER_THREAD=$SAFE_PER_THREAD
     fi
 fi
 
-# RAM: 2GB default, scale down if low RAM or /dev/shm restricted
+# RAM test: 2GB default (8 chunks of 256MB)
 RAM_CHUNK_MB=256
 RAM_CHUNK_COUNT=8
-RAM_TEST_MB=$((RAM_CHUNK_MB * RAM_CHUNK_COUNT))
-
-if [[ $TOTAL_RAM_MB -gt 0 ]]; then
-    MAX_RAM_TEST=$(( (TOTAL_RAM_MB - 1024) / 2 ))
-    [[ $MAX_RAM_TEST -lt 128 ]] && MAX_RAM_TEST=128
-    if [[ $MAX_RAM_TEST -lt $RAM_TEST_MB ]]; then
-        RAM_TEST_MB=$MAX_RAM_TEST
-        RAM_CHUNK_COUNT=$((RAM_TEST_MB / RAM_CHUNK_MB))
-        [[ $RAM_CHUNK_COUNT -lt 1 ]] && RAM_CHUNK_COUNT=1
-    fi
-fi
 
 # Check /dev/shm size on Linux
 if [[ $IS_TERMUX -eq 0 && -d "/dev/shm" ]]; then
-    SHM_SIZE_KB=$(df -P /dev/shm | awk 'NR==2 {print $4}')
-    SHM_SIZE_MB=$((SHM_SIZE_KB / 1024))
-    if [[ $SHM_SIZE_MB -lt $RAM_TEST_MB ]]; then
-        RAM_TEST_MB=$SHM_SIZE_MB
-        RAM_CHUNK_COUNT=$((RAM_TEST_MB / RAM_CHUNK_MB))
-        [[ $RAM_CHUNK_COUNT -lt 1 ]] && RAM_CHUNK_COUNT=1
-        echo -e "${YELLOW}[*] /dev/shm limited to ${SHM_SIZE_MB}MB. RAM test adjusted to ${RAM_TEST_MB}MB.${RESET}"
-        sleep 1
+    SHM_SIZE_KB=$(df -P /dev/shm 2>/dev/null | awk 'NR==2 {print $4}')
+    if [[ -n "$SHM_SIZE_KB" ]]; then
+        SHM_SIZE_MB=$((SHM_SIZE_KB / 1024))
+        if [[ $SHM_SIZE_MB -lt 2048 ]]; then
+            RAM_CHUNK_COUNT=$((SHM_SIZE_MB / RAM_CHUNK_MB))
+            [[ $RAM_CHUNK_COUNT -lt 2 ]] && RAM_CHUNK_COUNT=2
+            echo -e "${YELLOW}[*] /dev/shm limited to ~${SHM_SIZE_MB}MB. RAM test adjusted to $((RAM_CHUNK_MB * RAM_CHUNK_COUNT))MB.${RESET}"
+            sleep 1
+        fi
+    fi
+fi
+
+# If total RAM very low, also scale RAM test
+if [[ $TOTAL_RAM_MB -gt 0 && $TOTAL_RAM_MB -lt 4096 ]]; then
+    MAX_RAM_TEST=$(( (TOTAL_RAM_MB - 1024) / 2 ))
+    [[ $MAX_RAM_TEST -lt 256 ]] && MAX_RAM_TEST=256
+    CURRENT_TEST_MB=$((RAM_CHUNK_MB * RAM_CHUNK_COUNT))
+    if [[ $MAX_RAM_TEST -lt $CURRENT_TEST_MB ]]; then
+        RAM_CHUNK_COUNT=$((MAX_RAM_TEST / RAM_CHUNK_MB))
+        [[ $RAM_CHUNK_COUNT -lt 2 ]] && RAM_CHUNK_COUNT=2
     fi
 fi
 
@@ -174,7 +166,7 @@ function get_sys_info() {
         RAM_TOTAL=$(free -h 2>/dev/null | awk '/^Mem:/ {print $2}' || echo "Unknown")
         OS_NAME=$(cat /etc/os-release 2>/dev/null | grep "PRETTY_NAME" | cut -d'=' -f2 | tr -d '\"' || echo "Unknown Linux")
     fi
-    
+
     echo -e "  ${CYAN}OS       :${RESET} $OS_NAME"
     echo -e "  ${CYAN}CPU      :${RESET} $CPU_MODEL ($CPU_CORES Threads)"
     [[ $IS_TERMUX -eq 0 ]] && echo -e "  ${CYAN}RAM      :${RESET} $RAM_TOTAL"
@@ -195,31 +187,91 @@ function pause_continue() {
     read -r </dev/tty
 }
 
+# --- [ UNIVERSAL DD SPEED PARSER ] ---
+# dd output varies wildly across locales and versions.
+# We extract the last number with MB/s, GB/s, kB/s, bytes/sec pattern.
+parse_dd_speed() {
+    local raw="$1"
+    local speed_val=""
+    local speed_unit=""
+
+    # Try to find speed in various dd output formats
+    # Format 1: "1.2 GB/s" or "500 MB/s" or "1000 kB/s"
+    speed_val=$(echo "$raw" | grep -oE '[0-9]+(\.[0-9]+)?[[:space:]]*[GMk]?B/s' | tail -1 | sed 's/[[:space:]]//g')
+
+    if [[ -n "$speed_val" ]]; then
+        echo "$speed_val"
+        return
+    fi
+
+    # Format 2: dd with "bytes/sec" or similar
+    speed_val=$(echo "$raw" | grep -oE '[0-9]+(\.[0-9]+)?[[:space:]]*bytes/sec' | tail -1 | sed 's/[[:space:]]//g')
+    if [[ -n "$speed_val" ]]; then
+        echo "$speed_val"
+        return
+    fi
+
+    # Format 3: just raw numbers with s at end (fallback)
+    speed_val=$(echo "$raw" | grep -oE '[0-9]+(\.[0-9]+)?[[:space:]]*s$' | tail -1 | sed 's/[[:space:]]//g')
+    if [[ -n "$speed_val" ]]; then
+        echo "$speed_val"
+        return
+    fi
+
+    echo ""
+}
+
+# Convert any speed string to MB/s
+speed_to_mbps() {
+    local speed_str="$1"
+    if [[ -z "$speed_str" ]]; then
+        echo "0"
+        return
+    fi
+
+    local num=$(echo "$speed_str" | sed -E 's/[^0-9.]//g')
+    if [[ -z "$num" || "$num" == "." ]]; then
+        echo "0"
+        return
+    fi
+
+    if [[ "$speed_str" == *"GB/s"* ]]; then
+        awk -v n="$num" 'BEGIN {printf "%.2f", n * 1024}'
+    elif [[ "$speed_str" == *"kB/s"* || "$speed_str" == *"KB/s"* ]]; then
+        awk -v n="$num" 'BEGIN {printf "%.2f", n / 1024}'
+    elif [[ "$speed_str" == *"bytes/sec"* ]]; then
+        awk -v n="$num" 'BEGIN {printf "%.2f", n / 1048576}'
+    else
+        # Assume MB/s
+        echo "$num"
+    fi
+}
+
 # --- [ TEST MODULES ] ---
 
 function test_cpu() {
     local total_mb=$((CPU_MB_PER_THREAD * CPU_CORES))
     echo -e "${YELLOW}[*] Singularity CPU Stress (${CPU_MB_PER_THREAD}MB SHA-256 per Thread x $CPU_CORES Threads = ${total_mb}MB Total)...${RESET}"
-    
+
     if [[ -z "$HASHER" ]]; then
         echo -e "${RED}[!] No SHA-256 utility found (tried: sha256sum, shasum, openssl). Skipping CPU test.${RESET}"
         SCORE_CPU=0
         return
     fi
-    
+
     local temp_start=$(get_temp)
     local start_time=$(get_time)
-    
+
     for ((i=1; i<=CPU_CORES; i++)); do
-        dd if=/dev/zero bs=1M count=$CPU_MB_PER_THREAD $DD_STATUS 2>/dev/null | $HASHER > /dev/null 2>/dev/null &
+        dd if=/dev/zero bs=1M count=$CPU_MB_PER_THREAD 2>/dev/null | $HASHER > /dev/null 2>/dev/null &
     done
     wait
-    
+
     local end_time=$(get_time)
     local temp_end=$(get_temp)
     local elapsed=$(awk "BEGIN { e = $end_time - $start_time; if (e == 0 || e < 0) e = 0.001; print e }")
     SCORE_CPU=$(awk "BEGIN {printf \"%d\", ($CPU_MB_PER_THREAD * $CPU_CORES) / $elapsed}")
-    
+
     echo -e "  ${GREEN}[V] Elapsed: ${elapsed}s -> CPU Score: ${BOLD}${SCORE_CPU}${RESET}"
     if [[ "$temp_start" != "N/A" ]]; then
         [[ "$temp_end" -ge 85 ]] && echo -e "  ${RED}[!] THERMAL THROTTLING DETECTED (Max: ${temp_end}°C)${RESET}" || echo -e "  ${CYAN}[ Thermals: ${temp_start}°C -> ${temp_end}°C ]${RESET}"
@@ -228,47 +280,46 @@ function test_cpu() {
 
 function test_ram() {
     local test_mb=$((RAM_CHUNK_MB * RAM_CHUNK_COUNT))
-    echo -e "${YELLOW}[*] Deep Memory Bandwidth (${test_mb}MB Random Allocation Stress)...${RESET}"
-    
-    local RAM_SPEED_FULL=""
+    echo -e "${YELLOW}[*] Deep Memory Bandwidth (${test_mb}MB Chunked Allocation Stress)...${RESET}"
+
+    local dd_output=""
+    local speed_str=""
+
     if [[ -w "/dev/shm" && $IS_TERMUX -eq 0 ]]; then
         RAM_FILE="/dev/shm/.spectra_ram_test"
-        RAM_SPEED_FULL=$(LC_ALL=C dd if=/dev/zero of=$RAM_FILE bs=${RAM_CHUNK_MB}M count=$RAM_CHUNK_COUNT $DD_STATUS 2>&1 | awk '/copied/ {print $(NF-1), $NF}')
+        dd_output=$(LC_ALL=C dd if=/dev/zero of=$RAM_FILE bs=${RAM_CHUNK_MB}M count=$RAM_CHUNK_COUNT 2>&1)
         rm -f $RAM_FILE
     else
-        # Termux/Android fallback: kernel pipe speed
-        RAM_SPEED_FULL=$(LC_ALL=C dd if=/dev/zero of=/dev/null bs=${RAM_CHUNK_MB}M count=$RAM_CHUNK_COUNT $DD_STATUS 2>&1 | awk '/copied/ {print $(NF-1), $NF}')
+        # Termux/Android fallback
+        dd_output=$(LC_ALL=C dd if=/dev/zero of=/dev/null bs=${RAM_CHUNK_MB}M count=$RAM_CHUNK_COUNT 2>&1)
     fi
-    
-    local raw_val=$(echo "$RAM_SPEED_FULL" | awk '{print $1}')
-    local unit=$(echo "$RAM_SPEED_FULL" | awk '{print $2}')
-    
-    if [[ -z "$raw_val" || "$raw_val" == "0" ]]; then
-        echo -e "${RED}[!] RAM test failed to measure speed.${RESET}"
+
+    speed_str=$(parse_dd_speed "$dd_output")
+    local raw_mbps=$(speed_to_mbps "$speed_str")
+
+    if [[ -z "$raw_mbps" || "$raw_mbps" == "0" || "$raw_mbps" == "0.00" ]]; then
+        echo -e "${RED}[!] RAM test failed to measure speed. Raw output:${RESET}"
+        echo -e "${YELLOW}    $dd_output${RESET}"
         SCORE_RAM=0
         return
     fi
-    
-    [[ "$unit" == *"GB/s"* ]] && raw_val=$(awk "BEGIN {print $raw_val * 1024}")
-    [[ "$unit" == *"kB/s"* ]] && raw_val=$(awk "BEGIN {print $raw_val / 1024}")
-    [[ "$unit" == *"bytes/sec"* ]] && raw_val=$(awk "BEGIN {print $raw_val / 1048576}")
-    
-    SCORE_RAM=$(awk "BEGIN {printf \"%d\", $raw_val * 3}")
-    echo -e "  ${GREEN}[V] Memory Speed: $RAM_SPEED_FULL -> RAM Score: ${BOLD}${SCORE_RAM}${RESET}"
+
+    SCORE_RAM=$(awk -v mbps="$raw_mbps" 'BEGIN {printf "%d", mbps * 3}')
+    echo -e "  ${GREEN}[V] Memory Speed: ${raw_mbps} MB/s -> RAM Score: ${BOLD}${SCORE_RAM}${RESET}"
 }
 
 function test_disk() {
     echo -e "${YELLOW}[*] Deep Storage Test (5GB Sustained Write to Exhaust SLC Cache)...${RESET}"
     DISK_FILE="$TMP_DIR/.spectra_disk_test"
-    
+
     # Check available space
-    local avail_kb=$(df -P "$TMP_DIR" | awk 'NR==2 {print $4}')
+    local avail_kb=$(df -P "$TMP_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
     local avail_mb=$((avail_kb / 1024))
     local disk_count=5000
-    
+
     if [[ $avail_mb -lt 6000 ]]; then
         disk_count=$((avail_mb - 500))
-        [[ $disk_count -lt 100 ]] && disk_count=100
+        [[ $disk_count -lt 256 ]] && disk_count=256
         if [[ $disk_count -lt 100 ]]; then
             echo -e "${RED}[!] Insufficient disk space (${avail_mb}MB available). Skipping disk test.${RESET}"
             SCORE_DISK=0
@@ -276,35 +327,33 @@ function test_disk() {
         fi
         echo -e "${YELLOW}[!] Low disk space (${avail_mb}MB available). Using ${disk_count}MB test.${RESET}"
     fi
-    
-    DISK_SPEED_FULL=$(LC_ALL=C dd if=/dev/zero of=$DISK_FILE bs=1M count=$disk_count $DD_CONV $DD_STATUS 2>&1 | awk '/copied/ {print $(NF-1), $NF}')
+
+    local dd_output=$(LC_ALL=C dd if=/dev/zero of=$DISK_FILE bs=1M count=$disk_count 2>&1)
+    sync
     rm -f $DISK_FILE
-    
-    local raw_val=$(echo "$DISK_SPEED_FULL" | awk '{print $1}')
-    local unit=$(echo "$DISK_SPEED_FULL" | awk '{print $2}')
-    
-    if [[ -z "$raw_val" || "$raw_val" == "0" ]]; then
-        echo -e "${RED}[!] Disk test failed to measure speed.${RESET}"
+
+    local speed_str=$(parse_dd_speed "$dd_output")
+    local raw_mbps=$(speed_to_mbps "$speed_str")
+
+    if [[ -z "$raw_mbps" || "$raw_mbps" == "0" || "$raw_mbps" == "0.00" ]]; then
+        echo -e "${RED}[!] Disk test failed to measure speed. Raw output:${RESET}"
+        echo -e "${YELLOW}    $dd_output${RESET}"
         SCORE_DISK=0
         return
     fi
-    
-    [[ "$unit" == *"GB/s"* ]] && raw_val=$(awk "BEGIN {print $raw_val * 1024}")
-    [[ "$unit" == *"kB/s"* ]] && raw_val=$(awk "BEGIN {print $raw_val / 1024}")
-    [[ "$unit" == *"bytes/sec"* ]] && raw_val=$(awk "BEGIN {print $raw_val / 1048576}")
-    
-    SCORE_DISK=$(awk "BEGIN {printf \"%d\", $raw_val * 8}")
-    echo -e "  ${GREEN}[V] Disk Speed: $DISK_SPEED_FULL -> Disk Score: ${BOLD}${SCORE_DISK}${RESET}"
+
+    SCORE_DISK=$(awk -v mbps="$raw_mbps" 'BEGIN {printf "%d", mbps * 8}')
+    echo -e "  ${GREEN}[V] Disk Speed: ${raw_mbps} MB/s -> Disk Score: ${BOLD}${SCORE_DISK}${RESET}"
 }
 
 function test_network() {
     echo -e "${YELLOW}[*] Network Edge Ping & 100MB Enterprise CDN Download...${RESET}"
-    
+
     # 1. Ping Check
     local latency=999
     local latency_str="Offline/Timeout"
     local lat_score=0
-    
+
     if command -v ping >/dev/null 2>&1; then
         local ping_out=$(ping -c 3 -W 2 1.1.1.1 2>/dev/null)
         if [[ $? -eq 0 ]]; then
@@ -312,44 +361,53 @@ function test_network() {
             [[ -z "$latency" ]] && latency=999
         fi
     fi
-    
+
     if [[ "$latency" != "999" && -n "$latency" ]]; then 
         lat_score=$(awk -v lat="$latency" 'BEGIN {printf "%d", 2000 / lat}')
         latency_str="${latency} ms"
     fi
 
-    # 2. Download Test (Multi-CDN fallback)
-    local URL1="https://proof.ovh.net/files/100Mb.dat"
-    local URL2="https://speed.hetzner.de/100MB.bin"
-    local URL3="https://speedtest.tele2.net/100MB.zip"
+    # 2. Download Test (Multi-CDN: Asia-first for Indonesia)
+    local urls=(
+        "https://speedtest.tele2.net/100MB.zip"
+        "https://proof.ovh.net/files/100Mb.dat"
+        "https://speed.hetzner.de/100MB.bin"
+        "https://speedtest-sgp1.digitalocean.com/100mb.test"
+    )
     local dl_bps=0
     local dl_mbps=0
     local bw_score=0
     local success=0
 
     if command -v curl >/dev/null 2>&1; then
-        for url in "$URL1" "$URL2" "$URL3"; do
-            local response=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 20 -w "\nHTTP_CODE:%{http_code}\nSPEED:%{speed_download}\n" -o /dev/null "$url" 2>/dev/null)
-            local http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d: -f2)
-            dl_bps=$(echo "$response" | grep "SPEED:" | cut -d: -f2)
-            
-            if [[ "$http_code" == "200" && -n "$dl_bps" && "$dl_bps" != "0" && "$dl_bps" != "0.000" ]]; then
-                dl_mbps=$(awk -v bps="$dl_bps" 'BEGIN { printf "%.2f", bps / 1048576 }')
-                bw_score=$(awk -v mbps="$dl_mbps" 'BEGIN {printf "%d", mbps * 15}')
-                success=1
-                break
+        for url in "${urls[@]}"; do
+            # Use curl's speed_download which is always bytes/sec
+            local response=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 25 -w "\nHTTP_CODE:%{http_code}\nSPEED_BPS:%{speed_download}\n" -o /dev/null "$url" 2>/dev/null)
+            local http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d: -f2 | tr -d '[:space:]')
+            dl_bps=$(echo "$response" | grep "SPEED_BPS:" | cut -d: -f2 | tr -d '[:space:]')
+
+            # Validate: must be HTTP 200 and speed > 0
+            if [[ "$http_code" == "200" && -n "$dl_bps" ]]; then
+                # Check if dl_bps is a valid number > 0
+                local is_num=$(echo "$dl_bps" | awk '{if ($1 > 0) print 1; else print 0}')
+                if [[ "$is_num" == "1" ]]; then
+                    dl_mbps=$(awk -v bps="$dl_bps" 'BEGIN { printf "%.2f", bps / 1048576 }')
+                    bw_score=$(awk -v mbps="$dl_mbps" 'BEGIN {printf "%d", mbps * 15}')
+                    success=1
+                    break
+                fi
             fi
         done
     else
         echo -e "${YELLOW}[!] curl not found. Skipping download test.${RESET}"
     fi
-    
+
     if [[ $success -eq 0 ]]; then
         echo -e "${YELLOW}[!] All CDN endpoints failed or unreachable.${RESET}"
     fi
 
     SCORE_NET=$((lat_score + bw_score))
-    
+
     echo -e "  ${CYAN}DNS Latency :${RESET} $latency_str | ${CYAN}Bandwidth :${RESET} $dl_mbps MB/s"
     echo -e "  ${GREEN}[V] Network Validated -> Net Score: ${BOLD}${SCORE_NET}${RESET}"
 }
@@ -359,7 +417,7 @@ function run_all() {
     test_ram; echo ""
     test_disk; echo ""
     test_network; echo ""
-    
+
     TOTAL=$((SCORE_CPU + SCORE_RAM + SCORE_DISK + SCORE_NET))
     echo -e "${MAGENTA}=================================================================${RESET}"
     echo -e "${BOLD}                     🏆 FINAL SPECTRA SCORE 🏆                   ${RESET}"
@@ -377,7 +435,7 @@ function run_all() {
 while true; do
     draw_banner
     get_sys_info
-    
+
     echo -e "${BOLD}Select an operation to perform:${RESET}"
     echo -e "  ${GREEN}1.${RESET} 🚀 Run Full Singularity Benchmark Suite"
     echo -e "  ${CYAN}2.${RESET} 🧠 Test CPU (${CPU_MB_PER_THREAD}MB Singularity Multi-Core Load)"
@@ -386,17 +444,17 @@ while true; do
     echo -e "  ${CYAN}5.${RESET} 🌐 Test Network (Global Edge & 100MB CDN)"
     echo -e "  ${RED}0.${RESET} ❌ Exit"
     echo -e "${CYAN}-----------------------------------------------------------------${RESET}"
-    
-    # Drain any stale buffered input to prevent rapid-fire invalid loops
+
+    # Drain stale buffered input
     while IFS= read -r -t 0.1 discard </dev/tty 2>/dev/null; do : ; done
-    
+
     read -r -p "Enter your choice [0-5]: " choice </dev/tty
-    
-    # Empty input = silent redraw (no error spam)
+
+    # Empty input = silent redraw
     if [[ -z "$choice" ]]; then
         continue
     fi
-    
+
     case $choice in
         1) echo ""; run_all; pause_continue ;;
         2) echo ""; test_cpu; pause_continue ;;
