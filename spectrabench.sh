@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # ===========================================================================
-# Project      : SpectraBench (v5.2.1-OmniPlatform Singularity)
+# Project      : SpectraBench (v5.2.2-OmniPlatform Singularity)
 # Description  : Zero-Dependency Ultimate System Benchmark
 # Author       : Nabil
 # Architecture : Omni-Platform (Server/PC/Termux), Sustained Stress,
-#                L1/L2/L3 Cache Latency Profiling via Pointer-Chasing
+#                L1/L2/L3 Cache Latency Profiling
 # ===========================================================================
 
 # --- [ UI COLOR VARIABLES ] ---
@@ -19,66 +19,110 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-# --- [ PROGRESS UI - SAFE INLINE ] ---
-# For operations WITH output (dd, etc), we use a simple pre/post message
-# For operations WITHOUT output (network, cache compile), we use background spinner
+# --- [ SINGLE SAFE OUTPUT CHANNEL ] ---
+# All output MUST go through here. Prevents TTY corruption.
+_safe_out() {
+    # Kill any active spinner first
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null
+        printf "\r\033[K" >&2
+        _SPINNER_PID=""
+    fi
+    echo -e "$@"
+}
 
-SPINNER_CHARS=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-SPINNER_PID=""
+# --- [ SPINNER - SILENT OPS ONLY ] ---
+# NEVER use during dd, sha256, or file I/O. Only network/cache compile.
+_SPINNER_CHARS=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+_SPINNER_PID=""
 
-start_spinner() {
+_start_spinner() {
     local msg="$1"
     local color="${2:-$YELLOW}"
-    # Only start if no spinner already running
-    if [[ -n "$SPINNER_PID" ]] && kill -0 "$SPINNER_PID" 2>/dev/null; then
+    # Guard: don't start if one already running
+    if [[ -n "$_SPINNER_PID" ]] && kill -0 "$_SPINNER_PID" 2>/dev/null; then
         return
     fi
     (
         local i=0
         while :; do
-            printf "\r%s%s %s%s\033[K" "$color" "${SPINNER_CHARS[$i]}" "$msg" "$RESET" >&2
+            printf "\r%s%s %s%s\033[K" "$color" "${_SPINNER_CHARS[$i]}" "$msg" "$RESET" >&2
             i=$(( (i + 1) % 10 ))
             sleep 0.1
         done
     ) &
-    SPINNER_PID=$!
+    _SPINNER_PID=$!
 }
 
-stop_spinner() {
-    if [[ -n "$SPINNER_PID" ]]; then
-        kill "$SPINNER_PID" 2>/dev/null
-        wait "$SPINNER_PID" 2>/dev/null
+_stop_spinner() {
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null
+        wait "$_SPINNER_PID" 2>/dev/null
         printf "\r\033[K" >&2
-        SPINNER_PID=""
+        _SPINNER_PID=""
     fi
 }
 
-# Safe print that won't interfere with dd output capture
-safe_echo() {
-    stop_spinner
-    echo -e "$@"
+# --- [ INLINE PROGRESS DOTS FOR HEAVY OPS ] ---
+# Safer than spinner: prints a dot every N seconds, no background job
+_progress_dots() {
+    local msg="$1"
+    local interval="${2:-2}"
+    local color="${3:-$DIM}"
+    printf "%s%s %s%s" "$color" "▸" "$msg" "$RESET"
+    while :; do
+        sleep "$interval"
+        printf "%s.%s" "$color" "$RESET"
+    done &
+    _DOTS_PID=$!
 }
 
-# --- [ ENVIRONMENT & TTY CHECK ] ---
-if [[ ! -t 0 ]]; then
-    echo -e "${RED}[!] Piped Execution Detected (curl | bash)${RESET}"
-    echo -e "${YELLOW}SpectraBench v5.2.1 features an interactive UI that requires keyboard access.${RESET}"
-    echo -e "Please run Ghost Mode using this secure command instead:\n"
-    echo -e "${CYAN}bash -c \"\$(curl -sL https://raw.githubusercontent.com/nabilfp/spectrabench/main/spectrabench.sh)\"${RESET}\n"
-    exit 1
-fi
+_stop_dots() {
+    if [[ -n "$_DOTS_PID" ]]; then
+        kill "$_DOTS_PID" 2>/dev/null
+        wait "$_DOTS_PID" 2>/dev/null
+        printf "\n"  # newline after dots
+        _DOTS_PID=""
+    fi
+}
 
+# --- [ ENVIRONMENT DETECTION ] ---
 IS_TERMUX=0
+IS_WSL=0
+IS_MACOS=0
+
 if [[ -n "$PREFIX" && "$PREFIX" == *"com.termux"* ]]; then
     IS_TERMUX=1
     TMP_DIR="$PREFIX/tmp"
     mkdir -p "$TMP_DIR"
+elif [[ -n "${WSL_DISTRO_NAME-}" || -n "${WSLENV-}" ]]; then
+    IS_WSL=1
+    TMP_DIR="/tmp"
+    mkdir -p "$TMP_DIR"
+elif [[ "$(uname -s)" == "Darwin" ]]; then
+    IS_MACOS=1
+    TMP_DIR="/tmp"
+    mkdir -p "$TMP_DIR"
 else
     TMP_DIR="/tmp"
-    if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}[!] Access Denied. On standard Linux, SpectraBench requires root (sudo) for Cache Bypassing.${RESET}"
-        exit 1
-    fi
+    mkdir -p "$TMP_DIR"
+fi
+
+# --- [ PRIVILEGE CHECK - TERMUX EXEMPT ] ---
+if [[ $IS_TERMUX -eq 0 && $EUID -ne 0 ]]; then
+    _safe_out "${RED}[!] Access Denied. SpectraBench requires root (sudo) for Cache Bypassing.${RESET}"
+    _safe_out "${YELLOW}    On standard Linux, run: sudo bash spectrabench.sh${RESET}"
+    _safe_out "${CYAN}    Termux users: run directly without sudo.${RESET}\n"
+    exit 1
+fi
+
+# --- [ TTY CHECK ] ---
+if [[ ! -t 0 ]]; then
+    _safe_out "${RED}[!] Piped Execution Detected (curl | bash)${RESET}"
+    _safe_out "${YELLOW}SpectraBench v5.2.2 requires an interactive terminal.${RESET}"
+    _safe_out "${CYAN}Run: bash -c \"\$(curl -sL URL)\"${RESET}\n"
+    exit 1
 fi
 
 # --- [ UNIVERSAL TIMER ] ---
@@ -104,8 +148,8 @@ for cmd in dd awk ping curl; do
     fi
 done
 if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
-    echo -e "${YELLOW}[!] Missing optional dependencies: ${MISSING_DEPS[*]}${RESET}"
-    echo -e "${YELLOW}    Some tests may be skipped or produce limited results.${RESET}"
+    _safe_out "${YELLOW}[!] Missing optional dependencies: ${MISSING_DEPS[*]}${RESET}"
+    _safe_out "${YELLOW}    Some tests may be skipped or produce limited results.${RESET}"
     sleep 2
 fi
 
@@ -134,7 +178,7 @@ elif command -v python >/dev/null 2>&1; then
 fi
 
 # --- [ TRAP: GRACEFUL EXIT ] ---
-trap 'stop_spinner; echo -e "\n\n${RED}[!] Benchmark aborted. Cleaning up...${RESET}"; rm -f /dev/shm/.spectra_* "$TMP_DIR"/.spectra_* "$TMP_DIR"/spectra_cache*; exit 1' SIGINT SIGTERM
+trap '_stop_spinner; _stop_dots; _safe_out "\n\n${RED}[!] Benchmark aborted. Cleaning up...${RESET}"; rm -f /dev/shm/.spectra_* "$TMP_DIR"/.spectra_* "$TMP_DIR"/spectra_cache* "$TMP_DIR"/spectra_cache.c "$TMP_DIR"/spectra_cache.py "$TMP_DIR"/spectra_cache 2>/dev/null; exit 1' SIGINT SIGTERM
 
 # --- [ GLOBAL VARIABLES ] ---
 if command -v nproc >/dev/null 2>&1; then
@@ -169,10 +213,12 @@ if [[ $TOTAL_RAM_MB -gt 0 ]]; then
     fi
 fi
 
+# RAM test sizing
 RAM_CHUNK_MB=256
 RAM_CHUNK_COUNT=8
 
-if [[ $IS_TERMUX -eq 0 && -d "/dev/shm" ]]; then
+# /dev/shm check (Linux only, not Termux/macOS)
+if [[ $IS_TERMUX -eq 0 && $IS_MACOS -eq 0 && -d "/dev/shm" ]]; then
     SHM_SIZE_KB=$(df -P /dev/shm 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$SHM_SIZE_KB" ]]; then
         SHM_SIZE_MB=$((SHM_SIZE_KB / 1024))
@@ -203,7 +249,7 @@ function draw_banner() {
     echo -e "  ▒   ██▒▒██▄█▓▒ ▒▒▓█  ▄ ▒▓▓▄ ▄██▒░ ▓██▓ ░ ▒██▀▀█▄  ░██▄▄▄▄██  "
     echo -e "▒██████▒▒▒██▒ ░  ░░▒████▒▒ ▓███▀ ░  ▒██▒ ░ ░██▓ ▒██▒ ▓█   ▓██▒ "
     echo -e "░ ▒░▓  ░ ▒▓▒░ ░  ░░░ ▒░ ░░ ░▒ ▒  ░  ▒ ░░   ░ ▒▓ ░▒▓░ ▒▒   ▓▒█░ ${RESET}"
-    echo -e "${CYAN}    v5.2.1 Omni-Platform Singularity Suite | Linux & Android      ${RESET}"
+    echo -e "${CYAN}    v5.2.2 Omni-Platform Singularity Suite | Linux & Android    ${RESET}"
     echo -e "${CYAN}         Cache-Aware | Nanosecond-Precision | Live Telemetry      ${RESET}"
     echo -e "${CYAN}=================================================================${RESET}\n"
 }
@@ -213,6 +259,10 @@ function get_sys_info() {
         CPU_MODEL=$(getprop ro.product.vendor.model 2>/dev/null || echo "Mobile ARM Processor")
         OS_NAME="Android (Termux)"
         RAM_TOTAL="Mobile Architecture"
+    elif [[ $IS_MACOS -eq 1 ]]; then
+        CPU_MODEL=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Apple Silicon/Intel")
+        OS_NAME="macOS $(sw_vers -productVersion 2>/dev/null || echo "Unknown")"
+        RAM_TOTAL=$(sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.1fGi", $1/1024/1024/1024}')
     else
         CPU_MODEL=$(awk -F': ' '/model name/ {print $2; exit}' /proc/cpuinfo 2>/dev/null || echo "Unknown Processor")
         RAM_TOTAL=$(free -h 2>/dev/null | awk '/^Mem:/ {print $2}' || echo "Unknown")
@@ -226,11 +276,22 @@ function get_sys_info() {
 }
 
 function get_temp() {
-    local t_raw=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -nr | head -1)
-    if [[ -n "$t_raw" && "$t_raw" =~ ^[0-9]+$ && "$t_raw" -gt 0 ]]; then 
-        [[ "$t_raw" -gt 1000 ]] && echo $(( t_raw / 1000 )) || echo "$t_raw"
-    else 
+    if [[ $IS_TERMUX -eq 1 ]]; then
+        local t_raw=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -nr | head -1)
+        if [[ -n "$t_raw" && "$t_raw" =~ ^[0-9]+$ && "$t_raw" -gt 0 ]]; then 
+            [[ "$t_raw" -gt 1000 ]] && echo $(( t_raw / 1000 )) || echo "$t_raw"
+        else 
+            echo "N/A"
+        fi
+    elif [[ $IS_MACOS -eq 1 ]]; then
         echo "N/A"
+    else
+        local t_raw=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -nr | head -1)
+        if [[ -n "$t_raw" && "$t_raw" =~ ^[0-9]+$ && "$t_raw" -gt 0 ]]; then 
+            [[ "$t_raw" -gt 1000 ]] && echo $(( t_raw / 1000 )) || echo "$t_raw"
+        else 
+            echo "N/A"
+        fi
     fi
 }
 
@@ -272,10 +333,10 @@ speed_to_mbps() {
     echo "$num"
 }
 
-# --- [ CACHE PROFILING ENGINE - FIXED ] ---
+# --- [ CACHE PROFILING ENGINE ] ---
 function test_cache() {
-    safe_echo "${YELLOW}[*] Cache Hierarchy Profiling (Pointer-Chasing Latency Analysis)...${RESET}"
-    safe_echo "${DIM}    Measuring L1→L2→L3→RAM access latency via randomized pointer chains.${RESET}"
+    _safe_out "${YELLOW}[*] Cache Hierarchy Profiling (Pointer-Chasing Latency Analysis)...${RESET}"
+    _safe_out "${DIM}    Measuring L1→L2→L3→RAM access latency via randomized pointer chains.${RESET}"
 
     local cache_src="$TMP_DIR/spectra_cache.c"
     local cache_bin="$TMP_DIR/spectra_cache"
@@ -283,7 +344,7 @@ function test_cache() {
 
     # Method 1: Native C compilation
     if [[ -n "$COMPILER" ]]; then
-        safe_echo "${BLUE}    [Compiler: $COMPILER] Building native latency probe...${RESET}"
+        _safe_out "${BLUE}    [Compiler: $COMPILER] Building native latency probe...${RESET}"
 
         cat > "$cache_src" << 'CEOF'
 #include <stdio.h>
@@ -355,9 +416,9 @@ int main() {
 CEOF
 
         if "$COMPILER" -O0 -std=c99 "$cache_src" -o "$cache_bin" -lm 2>/dev/null; then
-            start_spinner "Running pointer-chase benchmark..." "$BLUE"
+            _start_spinner "Running pointer-chase benchmark..." "$BLUE"
             local cache_out=$("$cache_bin" 2>/dev/null)
-            stop_spinner
+            _stop_spinner
 
             CACHE_L1_NS=$(echo "$cache_out" | grep "^L1:" | cut -d: -f2)
             CACHE_L2_NS=$(echo "$cache_out" | grep "^L2:" | cut -d: -f2)
@@ -365,19 +426,19 @@ CEOF
             CACHE_RAM_NS=$(echo "$cache_out" | grep "^RAM:" | cut -d: -f2)
 
             if [[ -n "$CACHE_L1_NS" && "$CACHE_L1_NS" != "0" && "$CACHE_L1_NS" != "0.00" ]]; then
-                safe_echo "  ${GREEN}[V] Native C probe successful.${RESET}"
+                _safe_out "  ${GREEN}[V] Native C probe successful.${RESET}"
             else
-                safe_echo "  ${YELLOW}[!] Native probe incomplete. Trying Python fallback...${RESET}"
+                _safe_out "  ${YELLOW}[!] Native probe incomplete. Trying Python fallback...${RESET}"
             fi
         else
-            safe_echo "  ${YELLOW}[!] Compilation failed. Trying Python fallback...${RESET}"
+            _safe_out "  ${YELLOW}[!] Compilation failed. Trying Python fallback...${RESET}"
         fi
         rm -f "$cache_src" "$cache_bin"
     fi
 
     # Method 2: Python fallback
     if [[ -z "$CACHE_L1_NS" || "$CACHE_L1_NS" == "0" || "$CACHE_L1_NS" == "0.00" ]] && [[ -n "$PYTHON_CACHE" ]]; then
-        safe_echo "${BLUE}    [Python Fallback] Executing interpreted latency probe...${RESET}"
+        _safe_out "${BLUE}    [Python Fallback] Executing interpreted latency probe...${RESET}"
 
         cat > "$cache_py" << 'PYEOF'
 import sys, time
@@ -411,9 +472,9 @@ print(f"L3:{chase(4096, 2_500_000):.2f}")
 print(f"RAM:{chase(262144, 1_000_000):.2f}")
 PYEOF
 
-        start_spinner "Running Python latency probe..." "$BLUE"
+        _start_spinner "Running Python latency probe..." "$BLUE"
         local py_out=$($PYTHON_CACHE "$cache_py" 2>/dev/null)
-        stop_spinner
+        _stop_spinner
 
         CACHE_L1_NS=$(echo "$py_out" | grep "^L1:" | cut -d: -f2)
         CACHE_L2_NS=$(echo "$py_out" | grep "^L2:" | cut -d: -f2)
@@ -424,36 +485,36 @@ PYEOF
 
     # Validation & Display
     if [[ -n "$CACHE_L1_NS" && "$CACHE_L1_NS" != "0" && "$CACHE_L1_NS" != "0.00" ]]; then
-        safe_echo "  ${CYAN}┌─────────────────────────────────────────┐${RESET}"
-        safe_echo "  ${CYAN}│${RESET} ${BOLD}Cache Latency Profile (ns/access)${RESET}       ${CYAN}│${RESET}"
-        safe_echo "  ${CYAN}├─────────────────────────────────────────┤${RESET}"
+        _safe_out "  ${CYAN}┌─────────────────────────────────────────┐${RESET}"
+        _safe_out "  ${CYAN}│${RESET} ${BOLD}Cache Latency Profile (ns/access)${RESET}       ${CYAN}│${RESET}"
+        _safe_out "  ${CYAN}├─────────────────────────────────────────┤${RESET}"
         printf "  ${CYAN}│${RESET} L1 Data Cache  : ${GREEN}%8.2f ns${RESET}           ${CYAN}│${RESET}\n" "$CACHE_L1_NS"
         printf "  ${CYAN}│${RESET} L2 Cache       : ${YELLOW}%8.2f ns${RESET}           ${CYAN}│${RESET}\n" "$CACHE_L2_NS"
         printf "  ${CYAN}│${RESET} L3 Cache       : ${MAGENTA}%8.2f ns${RESET}           ${CYAN}│${RESET}\n" "$CACHE_L3_NS"
         printf "  ${CYAN}│${RESET} RAM (Main Mem) : ${RED}%8.2f ns${RESET}           ${CYAN}│${RESET}\n" "$CACHE_RAM_NS"
-        safe_echo "  ${CYAN}└─────────────────────────────────────────┘${RESET}"
+        _safe_out "  ${CYAN}└─────────────────────────────────────────┘${RESET}"
 
         local l1_score=$(awk -v lat="$CACHE_L1_NS" 'BEGIN {printf "%d", 5000 / (lat < 0.5 ? 0.5 : lat)}')
         local l2_score=$(awk -v lat="$CACHE_L2_NS" 'BEGIN {printf "%d", 5000 / (lat < 2 ? 2 : lat)}')
         local l3_score=$(awk -v lat="$CACHE_L3_NS" 'BEGIN {printf "%d", 5000 / (lat < 8 ? 8 : lat)}')
         local ramc_score=$(awk -v lat="$CACHE_RAM_NS" 'BEGIN {printf "%d", 5000 / (lat < 50 ? 50 : lat)}')
         SCORE_CACHE=$((l1_score + l2_score + l3_score + ramc_score))
-        safe_echo "  ${GREEN}[V] Cache Profile Score: ${BOLD}${SCORE_CACHE}${RESET}"
+        _safe_out "  ${GREEN}[V] Cache Profile Score: ${BOLD}${SCORE_CACHE}${RESET}"
     else
-        safe_echo "  ${RED}[!] Cache profiling unavailable.${RESET}"
-        safe_echo "  ${YELLOW}    Install gcc/cc or python3 for nanosecond cache latency measurement.${RESET}"
+        _safe_out "  ${RED}[!] Cache profiling unavailable.${RESET}"
+        _safe_out "  ${YELLOW}    Install gcc/cc or python3 for nanosecond cache latency measurement.${RESET}"
         SCORE_CACHE=0
     fi
 }
 
-# --- [ TEST MODULES - NO SPINNER DURING DD OPERATIONS ] ---
+# --- [ TEST MODULES - ZERO BACKGROUND JOBS DURING HEAVY OPS ] ---
 
 function test_cpu() {
     local total_mb=$((CPU_MB_PER_THREAD * CPU_CORES))
-    safe_echo "${YELLOW}[*] Singularity CPU Stress (${CPU_MB_PER_THREAD}MB SHA-256 per Thread x $CPU_CORES Threads = ${total_mb}MB Total)...${RESET}"
+    _safe_out "${YELLOW}[*] Singularity CPU Stress (${CPU_MB_PER_THREAD}MB SHA-256 per Thread x $CPU_CORES Threads)...${RESET}"
 
     if [[ -z "$HASHER" ]]; then
-        safe_echo "${RED}[!] No SHA-256 utility found. Skipping CPU test.${RESET}"
+        _safe_out "${RED}[!] No SHA-256 utility found. Skipping CPU test.${RESET}"
         SCORE_CPU=0
         return
     fi
@@ -461,8 +522,9 @@ function test_cpu() {
     local temp_start=$(get_temp)
     local start_time=$(get_time)
 
-    # Launch all workers silently, NO spinner during dd (prevents TTY corruption)
-    safe_echo "${DIM}    Launching $CPU_CORES parallel SHA-256 workers...${RESET}"
+    # NO spinner. NO background jobs. Just inline message.
+    _safe_out "${DIM}    ▸ Launching $CPU_CORES parallel SHA-256 workers (this may take 10–60s)...${RESET}"
+
     for ((i=1; i<=CPU_CORES; i++)); do
         dd if=/dev/zero bs=1M count=$CPU_MB_PER_THREAD 2>/dev/null | $HASHER > /dev/null 2>/dev/null &
     done
@@ -473,24 +535,25 @@ function test_cpu() {
     local elapsed=$(awk "BEGIN { e = $end_time - $start_time; if (e == 0 || e < 0) e = 0.001; print e }")
     SCORE_CPU=$(awk "BEGIN {printf \"%d\", ($CPU_MB_PER_THREAD * $CPU_CORES) / $elapsed}")
 
-    safe_echo "  ${GREEN}[V] Elapsed: ${elapsed}s -> CPU Score: ${BOLD}${SCORE_CPU}${RESET}"
+    _safe_out "  ${GREEN}[V] Elapsed: ${elapsed}s -> CPU Score: ${BOLD}${SCORE_CPU}${RESET}"
     if [[ "$temp_start" != "N/A" ]]; then
-        [[ "$temp_end" -ge 85 ]] && safe_echo "  ${RED}[!] THERMAL THROTTLING DETECTED (Max: ${temp_end}°C)${RESET}" || safe_echo "  ${CYAN}[ Thermals: ${temp_start}°C -> ${temp_end}°C ]${RESET}"
+        [[ "$temp_end" -ge 85 ]] && _safe_out "  ${RED}[!] THERMAL THROTTLING DETECTED (Max: ${temp_end}°C)${RESET}" || _safe_out "  ${CYAN}[ Thermals: ${temp_start}°C -> ${temp_end}°C ]${RESET}"
     fi
 }
 
 function test_ram() {
     local test_mb=$((RAM_CHUNK_MB * RAM_CHUNK_COUNT))
-    safe_echo "${YELLOW}[*] Deep Memory Bandwidth (${test_mb}MB Chunked Allocation)...${RESET}"
+    _safe_out "${YELLOW}[*] Deep Memory Bandwidth (${test_mb}MB Chunked Allocation)...${RESET}"
 
     local dd_output=""
-    if [[ -w "/dev/shm" && $IS_TERMUX -eq 0 ]]; then
+    if [[ $IS_TERMUX -eq 0 && $IS_MACOS -eq 0 && -w "/dev/shm" ]]; then
         RAM_FILE="/dev/shm/.spectra_ram_test"
-        safe_echo "${DIM}    Writing ${test_mb}MB to /dev/shm...${RESET}"
+        _safe_out "${DIM}    ▸ Writing ${test_mb}MB to /dev/shm...${RESET}"
         dd_output=$(LC_ALL=C dd if=/dev/zero of=$RAM_FILE bs=${RAM_CHUNK_MB}M count=$RAM_CHUNK_COUNT 2>&1)
         rm -f $RAM_FILE
     else
-        safe_echo "${DIM}    Testing memory throughput via kernel pipe...${RESET}"
+        # Termux/macOS fallback: kernel pipe
+        _safe_out "${DIM}    ▸ Testing memory throughput via kernel pipe...${RESET}"
         dd_output=$(LC_ALL=C dd if=/dev/zero of=/dev/null bs=${RAM_CHUNK_MB}M count=$RAM_CHUNK_COUNT 2>&1)
     fi
 
@@ -498,17 +561,17 @@ function test_ram() {
     local raw_mbps=$(speed_to_mbps "$speed_str")
 
     if [[ -z "$raw_mbps" || "$raw_mbps" == "0" || "$raw_mbps" == "0.00" ]]; then
-        safe_echo "${RED}[!] RAM test failed. Raw: $dd_output${RESET}"
+        _safe_out "${RED}[!] RAM test failed. Raw: $dd_output${RESET}"
         SCORE_RAM=0
         return
     fi
 
     SCORE_RAM=$(awk -v mbps="$raw_mbps" 'BEGIN {printf "%d", mbps * 3}')
-    safe_echo "  ${GREEN}[V] Memory Speed: ${raw_mbps} MB/s -> RAM Score: ${BOLD}${SCORE_RAM}${RESET}"
+    _safe_out "  ${GREEN}[V] Memory Speed: ${raw_mbps} MB/s -> RAM Score: ${BOLD}${SCORE_RAM}${RESET}"
 }
 
 function test_disk() {
-    safe_echo "${YELLOW}[*] Deep Storage Test (5GB Sustained Write to Exhaust SLC)...${RESET}"
+    _safe_out "${YELLOW}[*] Deep Storage Test (5GB Sustained Write to Exhaust SLC)...${RESET}"
     DISK_FILE="$TMP_DIR/.spectra_disk_test"
 
     local avail_kb=$(df -P "$TMP_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
@@ -519,42 +582,43 @@ function test_disk() {
         disk_count=$((avail_mb - 500))
         [[ $disk_count -lt 256 ]] && disk_count=256
         if [[ $disk_count -lt 100 ]]; then
-            safe_echo "${RED}[!] Insufficient disk space (${avail_mb}MB). Skipping.${RESET}"
+            _safe_out "${RED}[!] Insufficient disk space (${avail_mb}MB). Skipping.${RESET}"
             SCORE_DISK=0
             return
         fi
-        safe_echo "${YELLOW}[!] Low disk space (${avail_mb}MB). Using ${disk_count}MB test.${RESET}"
+        _safe_out "${YELLOW}[!] Low disk space (${avail_mb}MB). Using ${disk_count}MB test.${RESET}"
     fi
 
-    safe_echo "${DIM}    Saturating storage controller...${RESET}"
+    # NO spinner. Inline message only.
+    _safe_out "${DIM}    ▸ Saturating storage controller (this may take 10–30s)...${RESET}"
     local dd_output=$(LC_ALL=C dd if=/dev/zero of=$DISK_FILE bs=1M count=$disk_count 2>&1)
-    sync
+    sync 2>/dev/null || true
     rm -f $DISK_FILE
 
     local speed_str=$(parse_dd_speed "$dd_output")
     local raw_mbps=$(speed_to_mbps "$speed_str")
 
     if [[ -z "$raw_mbps" || "$raw_mbps" == "0" || "$raw_mbps" == "0.00" ]]; then
-        safe_echo "${RED}[!] Disk test failed. Raw: $dd_output${RESET}"
+        _safe_out "${RED}[!] Disk test failed. Raw: $dd_output${RESET}"
         SCORE_DISK=0
         return
     fi
 
     SCORE_DISK=$(awk -v mbps="$raw_mbps" 'BEGIN {printf "%d", mbps * 8}')
-    safe_echo "  ${GREEN}[V] Disk Speed: ${raw_mbps} MB/s -> Disk Score: ${BOLD}${SCORE_DISK}${RESET}"
+    _safe_out "  ${GREEN}[V] Disk Speed: ${raw_mbps} MB/s -> Disk Score: ${BOLD}${SCORE_DISK}${RESET}"
 }
 
 function test_network() {
-    safe_echo "${YELLOW}[*] Network Edge Ping & 100MB Enterprise CDN Download...${RESET}"
+    _safe_out "${YELLOW}[*] Network Edge Ping & 100MB Enterprise CDN Download...${RESET}"
 
     local latency=999
     local latency_str="Offline/Timeout"
     local lat_score=0
 
     if command -v ping >/dev/null 2>&1; then
-        start_spinner "Measuring DNS latency to 1.1.1.1..." "$YELLOW"
+        _start_spinner "Measuring DNS latency to 1.1.1.1..." "$YELLOW"
         local ping_out=$(ping -c 3 -W 2 1.1.1.1 2>/dev/null)
-        stop_spinner
+        _stop_spinner
         if [[ $? -eq 0 ]]; then
             latency=$(echo "$ping_out" | awk -F '/' 'END {print $5}')
             [[ -z "$latency" ]] && latency=999
@@ -579,9 +643,9 @@ function test_network() {
 
     if command -v curl >/dev/null 2>&1; then
         for url in "${urls[@]}"; do
-            start_spinner "Downloading 100MB from CDN..." "$YELLOW"
+            _start_spinner "Downloading 100MB from CDN..." "$YELLOW"
             local response=$(LC_ALL=C curl -sL --connect-timeout 5 --max-time 25 -w "\nHTTP_CODE:%{http_code}\nSPEED_BPS:%{speed_download}\n" -o /dev/null "$url" 2>/dev/null)
-            stop_spinner
+            _stop_spinner
 
             local http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d: -f2 | tr -d '[:space:]')
             dl_bps=$(echo "$response" | grep "SPEED_BPS:" | cut -d: -f2 | tr -d '[:space:]')
@@ -597,17 +661,17 @@ function test_network() {
             fi
         done
     else
-        safe_echo "${YELLOW}[!] curl not found. Skipping download test.${RESET}"
+        _safe_out "${YELLOW}[!] curl not found. Skipping download test.${RESET}"
     fi
 
     if [[ $success -eq 0 ]]; then
-        safe_echo "${YELLOW}[!] All CDN endpoints failed or unreachable.${RESET}"
+        _safe_out "${YELLOW}[!] All CDN endpoints failed or unreachable.${RESET}"
     fi
 
     SCORE_NET=$((lat_score + bw_score))
 
-    safe_echo "  ${CYAN}DNS Latency :${RESET} $latency_str | ${CYAN}Bandwidth :${RESET} $dl_mbps MB/s"
-    safe_echo "  ${GREEN}[V] Network Validated -> Net Score: ${BOLD}${SCORE_NET}${RESET}"
+    _safe_out "  ${CYAN}DNS Latency :${RESET} $latency_str | ${CYAN}Bandwidth :${RESET} $dl_mbps MB/s"
+    _safe_out "  ${GREEN}[V] Network Validated -> Net Score: ${BOLD}${SCORE_NET}${RESET}"
 }
 
 function run_all() {
@@ -618,17 +682,17 @@ function run_all() {
     test_cache; echo ""
 
     TOTAL=$((SCORE_CPU + SCORE_RAM + SCORE_DISK + SCORE_NET + SCORE_CACHE))
-    safe_echo "${MAGENTA}=================================================================${RESET}"
-    safe_echo "${BOLD}                     🏆 FINAL SPECTRA SCORE 🏆                   ${RESET}"
-    safe_echo "${MAGENTA}=================================================================${RESET}"
-    safe_echo "  ${CYAN}CPU Score      :${RESET} $SCORE_CPU"
-    safe_echo "  ${CYAN}RAM Score      :${RESET} $SCORE_RAM"
-    safe_echo "  ${CYAN}Disk Score     :${RESET} $SCORE_DISK"
-    safe_echo "  ${CYAN}Network Score  :${RESET} $SCORE_NET"
-    safe_echo "  ${CYAN}Cache Score    :${RESET} $SCORE_CACHE"
-    safe_echo "-----------------------------------------------------------------"
-    safe_echo "  ${YELLOW}${BOLD}TOTAL SCORE    : $TOTAL${RESET}"
-    safe_echo "${MAGENTA}=================================================================${RESET}"
+    _safe_out "${MAGENTA}=================================================================${RESET}"
+    _safe_out "${BOLD}                     🏆 FINAL SPECTRA SCORE 🏆                   ${RESET}"
+    _safe_out "${MAGENTA}=================================================================${RESET}"
+    _safe_out "  ${CYAN}CPU Score      :${RESET} $SCORE_CPU"
+    _safe_out "  ${CYAN}RAM Score      :${RESET} $SCORE_RAM"
+    _safe_out "  ${CYAN}Disk Score     :${RESET} $SCORE_DISK"
+    _safe_out "  ${CYAN}Network Score  :${RESET} $SCORE_NET"
+    _safe_out "  ${CYAN}Cache Score    :${RESET} $SCORE_CACHE"
+    _safe_out "-----------------------------------------------------------------"
+    _safe_out "  ${YELLOW}${BOLD}TOTAL SCORE    : $TOTAL${RESET}"
+    _safe_out "${MAGENTA}=================================================================${RESET}"
 }
 
 # --- [ INTERACTIVE MENU LOOP ] ---
